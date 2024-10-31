@@ -39,3 +39,10 @@ colorama
 
 sqlalchemy==2.0.36
 sqlalchemy[asyncio]
+
+# testing
+pytest
+pytest-asyncio
+pytest-cov
+aiosqlite
+coverage

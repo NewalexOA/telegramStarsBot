@@ -16,7 +16,12 @@ class ReferralLink(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Связь с рефералами
-    referrals = relationship("Referral", back_populates="link", lazy="selectin")
+    referrals = relationship(
+        "Referral",
+        back_populates="link",
+        foreign_keys="Referral.link_id",
+        lazy="selectin"
+    )
 
     # Индекс для быстрого поиска по коду
     __table_args__ = (
@@ -35,7 +40,12 @@ class Referral(Base):
     reward_claimed = Column(Boolean, default=False)
     
     # Связь с реферальной ссылкой
-    link = relationship("ReferralLink", back_populates="referrals", lazy="selectin")
+    link = relationship(
+        "ReferralLink",
+        back_populates="referrals",
+        foreign_keys=[link_id],
+        lazy="selectin"
+    )
 
     # Уникальный индекс, чтобы пользователь мог быть приглашен только один раз
     __table_args__ = (
