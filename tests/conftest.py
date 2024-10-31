@@ -1,6 +1,6 @@
 import pytest
 import pytest_asyncio
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Any
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -11,7 +11,7 @@ from models.enums import RewardType
 from config_reader import BotConfig, get_config
 
 @pytest.fixture(scope="session")
-def event_loop():
+def event_loop(request: pytest.FixtureRequest) -> Any:
     """Create event loop for tests"""
     import asyncio
     loop = asyncio.get_event_loop_policy().new_event_loop()
@@ -19,7 +19,7 @@ def event_loop():
     loop.close()
 
 @pytest_asyncio.fixture(scope="session")
-async def db_engine():
+async def engine() -> AsyncGenerator[Any, None]:
     """Create test database engine"""
     test_engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
@@ -36,24 +36,24 @@ async def db_engine():
     await test_engine.dispose()
 
 @pytest_asyncio.fixture
-async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
     """Create test database session"""
-    async_session = async_sessionmaker(
-        bind=db_engine,
+    session_maker = async_sessionmaker(
+        bind=engine,
         class_=AsyncSession,
         expire_on_commit=False,
         autocommit=False,
         autoflush=False
     )
     
-    session = async_session()
-    try:
-        yield session
-    finally:
-        await session.close()
+    async with session_maker() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
 @pytest_asyncio.fixture
-async def bot():
+async def bot() -> AsyncGenerator[Bot, None]:
     """Create test bot instance"""
     session = AiohttpSession()
     bot_config = get_config(BotConfig, "bot")
@@ -69,11 +69,11 @@ async def bot():
         await bot.session.close()
 
 @pytest.fixture
-def dp():
+def dp() -> Dispatcher:
     """Create test dispatcher instance"""
     return Dispatcher()
 
 @pytest.fixture
-def reward_type():
+def reward_type() -> RewardType:
     """Create test reward type"""
     return RewardType.CHAPTER_UNLOCK

@@ -1,6 +1,7 @@
 from typing import Callable, Dict, Any, Awaitable, List
+from functools import wraps
 from aiogram import BaseMiddleware
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 
 from filters.is_subscribed import IsSubscribedFilter
@@ -34,8 +35,25 @@ class CheckSubscriptionMiddleware(BaseMiddleware):
         if not await IsSubscribedFilter()(event):
             await event.answer(
                 "Для использования бота необходимо подписаться на наш канал:",
-                reply_markup=get_subscription_keyboard()
+                reply_markup=await get_subscription_keyboard()
             )
             return
         
-        return await handler(event, data) 
+        return await handler(event, data)
+
+def check_subscription(func: Callable) -> Callable:
+    """Декоратор для проверки подписки пользователя"""
+    @wraps(func)
+    async def wrapper(event: CallbackQuery, *args, **kwargs):
+        # Проверяем подписку
+        if not await IsSubscribedFilter()(event):
+            await event.answer(
+                "Для использования бота необходимо подписаться на наш канал",
+                show_alert=True
+            )
+            return
+        
+        # Если подписка есть, выполняем оригинальную функцию
+        return await func(event, *args, **kwargs)
+    
+    return wrapper 
