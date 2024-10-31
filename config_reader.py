@@ -17,6 +17,8 @@ class LogRenderer(StrEnum):
 class BotConfig(BaseModel):
     token: SecretStr
     owners: list
+    required_channel_id: int
+    required_channel_invite: str
 
 
 class LogConfig(BaseModel):

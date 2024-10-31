@@ -3,14 +3,16 @@ from aiogram.types import Message
 from aiogram.enums import ChatMemberStatus
 from aiogram.exceptions import TelegramBadRequest
 import structlog
+from config_reader import get_config, BotConfig
 
 class IsSubscribedFilter(BaseFilter):
     """
     Filter that checks if user is subscribed to required channel
     """
-    def __init__(self, channel_id: int = -1002451767254):
-        self.channel_id = channel_id
+    def __init__(self):
         self.logger = structlog.get_logger()
+        bot_config: BotConfig = get_config(model=BotConfig, root_key="bot")
+        self.channel_id = bot_config.required_channel_id
 
     async def __call__(self, message: Message) -> bool:
         try:

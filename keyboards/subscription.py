@@ -1,11 +1,14 @@
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from config_reader import get_config, BotConfig
 
 def get_subscription_keyboard() -> InlineKeyboardMarkup:
+    bot_config: BotConfig = get_config(model=BotConfig, root_key="bot")
+    
     kb = InlineKeyboardBuilder()
     kb.button(
         text="📚 Подписаться на канал",
-        url="https://t.me/+_lWXgZC_XNMwYWRi"
+        url=bot_config.required_channel_invite
     )
     kb.button(
         text="🔄 Проверить подписку",
