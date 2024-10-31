@@ -4,6 +4,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.schema import Index
 
 from .base import Base
+from .enums import RewardType
 
 class ReferralLink(Base):
     """Model for storing referral links"""
@@ -47,11 +48,14 @@ class ReferralReward(Base):
 
     id = Column(Integer, primary_key=True)
     referral_id = Column(Integer, ForeignKey('referrals.id'), unique=True)
-    user_id = Column(Integer, nullable=False, index=True)  # Кто получил награду
-    reward_type = Column(String(32), nullable=False)  # Тип награды (например, "chapter_unlock")
-    reward_data = Column(String(255))  # Дополнительные данные о награде (например, номер главы)
+    user_id = Column(Integer, nullable=False, index=True)
+    reward_type = Column(String(32), nullable=False)
+    reward_data = Column(String(255))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
+    def get_reward_type(self) -> RewardType:
+        return RewardType(self.reward_type)
+
     # Индекс для быстрого поиска наград пользователя
     __table_args__ = (
         Index('ix_referral_rewards_user_id_type', 'user_id', 'reward_type'),
