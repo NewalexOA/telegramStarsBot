@@ -6,6 +6,8 @@ from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, InlineKeyboar
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from fluent.runtime import FluentLocalization
+from filters.is_subscribed import IsSubscribedFilter
+from keyboards.subscription import get_subscription_keyboard
 
 # Declare router
 router = Router()
@@ -22,10 +24,7 @@ async def cmd_owner_hello(message: Message, l10n: FluentLocalization):
 
 @router.message(Command("donate", "donat", "донат"))
 async def cmd_donate(message: Message, command: CommandObject, l10n: FluentLocalization):
-    # проверяем, что в команду передан аргумент кол-ва. звёзд для доната
-    # если нет, то не обрабатываем команду и возвращаем сообщение с ошибкой
-    # также проверяем, чтобы кол-во. звёзд для доната было не менее 1 и не более 2500
-    # (текущие лимиты в Telegram API)
+    # Убираем проверку подписки отсюда
     if command.args is None or not command.args.isdigit() or not 1 <= int(command.args) <= 2500:
         await message.answer(l10n.format_value("donate-input-error"))
         return
@@ -143,7 +142,7 @@ async def pre_checkout_query(query: PreCheckoutQuery, l10n: FluentLocalization):
 
 @router.message(F.successful_payment)
 async def on_successfull_payment(message: Message, l10n: FluentLocalization):
-    # И наконец обработка УСПЕШНОГО ПЛАТЕЖА
+    # обработка УСПЕШНОГО ПЛАТЕЖА
     # тут мы получаем объект message.successful_payment
     # в котором содержится ID транзакции, пэйлод который мы указывали при создании инвойса
     # и все такое прочее
@@ -167,6 +166,18 @@ async def on_successfull_payment(message: Message, l10n: FluentLocalization):
         # 🎉 праздник - 5046509860389126442
         # 💩 какаха - 5046589136895476101
     )
+
+
+@router.callback_query(F.data == "check_subscription")
+async def check_subscription(callback: CallbackQuery):
+    if await IsSubscribedFilter()(callback.message):
+        await callback.message.delete()
+        await callback.message.answer("Спасибо за подписку! Теперь вы можете использовать бота.")
+    else:
+        await callback.answer(
+            "Вы все еще не подписаны на канал 😢",
+            show_alert=True
+        )
 
 
 

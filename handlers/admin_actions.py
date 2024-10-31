@@ -30,3 +30,18 @@ async def cmd_owner_hello(message: Message, l10n: FluentLocalization):
 )
 async def cmd_ping_bot(message: Message, l10n: FluentLocalization):
     await message.reply(l10n.format_value("ping-msg"))
+
+@router.message(Command("chatid"))
+async def cmd_get_chat_id(message: Message):
+    """Временный обработчик для получения ID чата"""
+    if message.forward_from_chat:
+        await message.answer(
+            f"Chat ID: {message.forward_from_chat.id}\n"
+            f"Type: {message.forward_from_chat.type}\n"
+            f"Title: {message.forward_from_chat.title}"
+        )
+    else:
+        await message.answer(
+            f"Current chat ID: {message.chat.id}\n"
+            f"Type: {message.chat.type}"
+        )
