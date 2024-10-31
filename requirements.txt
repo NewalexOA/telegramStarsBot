@@ -36,3 +36,6 @@ colorama
 # aioamqp  # Async work with AMQP
 # aiocache  # Async work with cache system
 # aiopath  # Async pathlib
+
+sqlalchemy==2.0.36
+sqlalchemy[asyncio]
