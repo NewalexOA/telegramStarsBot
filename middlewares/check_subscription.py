@@ -15,7 +15,7 @@ logger = structlog.get_logger()
 class CheckSubscriptionMiddleware(BaseMiddleware):
     def __init__(self, excluded_commands: List[str] = None):
         self.excluded_commands = [
-            '/donate', '/donat', '/донат',
+            '/donate', '/donat', '/донат', '/donate@Novel_story_game_dev_bot',
             '/help',
             '/start'
         ]
@@ -30,7 +30,14 @@ class CheckSubscriptionMiddleware(BaseMiddleware):
     ) -> Any:
         # Для сообщений проверяем исключенные команды
         if isinstance(event, Message) and event.text:
-            command = event.text.split()[0].lower()
+            # Разбиваем текст на части и берем первое слово
+            parts = event.text.split()
+            if not parts:
+                return await handler(event, data)
+            
+            # Извлекаем команду (первое слово до пробела или целиком, если пробелов нет)
+            command = parts[0].split('@')[0].lower()  # Также убираем @bot_username если есть
+            
             if command in self.excluded_commands:
                 return await handler(event, data)
 
