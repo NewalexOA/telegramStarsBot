@@ -1,4 +1,5 @@
-def remove_prefix(text, prefix):
-    if text.lower().startswith(prefix.lower()):
-        return text[len(prefix):]
-    return text  # or whatever
+from typing import Any, Dict
+
+def get_config_from_env(prefix: str) -> Dict[str, Any]:
+    """Get config from environment variables with prefix"""
+    return {} 

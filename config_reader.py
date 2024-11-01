@@ -19,6 +19,7 @@ class BotConfig(BaseModel):
     owners: list
     required_channel_id: int
     required_channel_invite: str
+    provider_token: SecretStr
 
 
 class LogConfig(BaseModel):
