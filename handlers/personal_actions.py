@@ -1,12 +1,11 @@
 import structlog
 from aiogram import Router, F, Bot
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import Command, CommandStart, CommandObject
-from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, InlineKeyboardMarkup, CallbackQuery
+from aiogram.filters import Command, CommandObject
+from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from fluent.runtime import FluentLocalization
-from filters.is_subscribed import IsSubscribedFilter
 from keyboards.subscription import get_subscription_keyboard
 from filters.chat_type import ChatTypeFilter
 from filters.referral import RegularStartCommandFilter
@@ -34,7 +33,10 @@ async def cmd_start(message: Message, l10n):
 async def cmd_donate(message: Message, command: CommandObject, l10n: FluentLocalization):
     """Обработчик команды доната звездами"""
     if command.args is None or not command.args.isdigit() or not 1 <= int(command.args) <= 2500:
-        await message.answer(l10n.format_value("donate-input-error"))
+        await message.answer(
+            l10n.format_value("donate-input-error"),
+            parse_mode="HTML"
+        )
         return
 
     amount = int(command.args)
@@ -94,14 +96,19 @@ async def check_subscription_callback(callback: CallbackQuery, l10n):
 @router.callback_query(F.data == "show_donate")
 async def show_donate_info(callback: CallbackQuery, l10n):
     """Показываем информацию о донате"""
-    await callback.message.answer(l10n.format_value("donate-input-error"))
+    await callback.message.answer(
+        l10n.format_value("donate-input-error"),
+        parse_mode="HTML"
+    )
     await callback.answer()
 
 @router.callback_query(F.data == "start_novel")
 async def start_novel(callback: CallbackQuery, l10n):
     """Начинаем новеллу"""
-    # Здесь будет логика запуска новеллы
-    await callback.message.answer("Запуск новеллы... (в разработке)")
+    await callback.message.answer(
+        "Запуск новеллы... (в разработке)",
+        parse_mode="HTML"
+    )
     await callback.answer()
 
 @router.callback_query(F.data == "donate_cancel")
@@ -153,5 +160,6 @@ async def on_successful_payment(message: Message, l10n: FluentLocalization):
             "donate-successful-payment",
             {"t_id": message.successful_payment.telegram_payment_charge_id}
         ),
-        message_effect_id="5159385139981059251"  # Эффект сердечка
+        parse_mode="HTML",
+        message_effect_id="5159385139981059251"
     )
