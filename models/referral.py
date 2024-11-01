@@ -1,55 +1,44 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Index, func
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
-from sqlalchemy.schema import Index
 
-from .base import Base
-from .enums import RewardType
+from models.base import Base
+from models.enums import RewardType
 
 class ReferralLink(Base):
     """Model for storing referral links"""
-    __tablename__ = 'referral_links'
-
+    __tablename__ = "referral_links"
+    
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, nullable=False, index=True)  # Индекс для быстрого поиска
-    code = Column(String(16), unique=True, nullable=False)  # Ограничиваем длину кода
+    user_id = Column(Integer, nullable=False, index=True, unique=True)
+    code = Column(String(16), nullable=False, unique=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # Связь с рефералами
-    referrals = relationship(
-        "Referral",
-        back_populates="link",
-        foreign_keys="Referral.link_id",
-        lazy="selectin"
-    )
-
-    # Индекс для быстрого поиска по коду
-    __table_args__ = (
-        Index('ix_referral_links_code', 'code'),
-    )
+    referrals = relationship("Referral", back_populates="link")
 
 class Referral(Base):
-    """Model for tracking referral relationships"""
-    __tablename__ = 'referrals'
-
+    """Model for tracking referrals"""
+    __tablename__ = "referrals"
+    
     id = Column(Integer, primary_key=True)
-    referrer_id = Column(Integer, ForeignKey('referral_links.user_id'), index=True)
-    referred_id = Column(Integer, nullable=False, index=True)
+    referrer_id = Column(Integer, nullable=False, index=True)
+    referred_id = Column(Integer, nullable=False, unique=True)
     link_id = Column(Integer, ForeignKey('referral_links.id'))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    reward_claimed = Column(Boolean, default=False)
     
-    # Связь с реферальной ссылкой
-    link = relationship(
-        "ReferralLink",
-        back_populates="referrals",
-        foreign_keys=[link_id],
-        lazy="selectin"
-    )
+    link = relationship("ReferralLink", back_populates="referrals")
+    reward = relationship("ReferralReward", back_populates="referral", uselist=False)
 
-    # Уникальный индекс, чтобы пользователь мог быть приглашен только один раз
+class PendingReferral(Base):
+    """Model for storing pending referrals until subscription"""
+    __tablename__ = "pending_referrals"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    ref_code = Column(String(16), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     __table_args__ = (
-        Index('ix_referrals_unique_referred', 'referred_id', unique=True),
+        Index('ix_pending_referrals_user_created', 'user_id', 'created_at'),
     )
 
 class ReferralReward(Base):
@@ -63,10 +52,11 @@ class ReferralReward(Base):
     reward_data = Column(String(255))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    referral = relationship("Referral", back_populates="reward")
+
     def get_reward_type(self) -> RewardType:
         return RewardType(self.reward_type)
 
-    # Индекс для быстрого поиска наград пользователя
     __table_args__ = (
         Index('ix_referral_rewards_user_id_type', 'user_id', 'reward_type'),
     )

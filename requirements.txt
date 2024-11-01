@@ -25,7 +25,7 @@ colorama
 ### for more: https://github.com/timofurrer/awesome-asyncio ###
 ##############################################################
 
-# aiosqlite  # Async work with SQLite
+aiosqlite  # Async work with SQLite
 # asyncpg  # Async work with PostgreSQL
 # motor  # Async work with MongoDB
 # pyzmq  # Async work with ZeroMQ

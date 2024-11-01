@@ -1,9 +1,9 @@
-from dispatcher import dp
-
 from . import admin_actions, group_events, personal_actions, referral
 
-# Include required routers
-dp.include_router(admin_actions.router)
-dp.include_router(group_events.router)
-dp.include_router(personal_actions.router)
-dp.include_router(referral.router)
+# Создаем список роутеров для регистрации
+routers = [
+    admin_actions.router,
+    group_events.router,
+    personal_actions.router,
+    referral.router
+]

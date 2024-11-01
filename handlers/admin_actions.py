@@ -10,30 +10,35 @@ from filters.is_owner import IsOwnerFilter
 
 # Declare router
 router = Router()
-router.message.filter(F.chat.type == "private", IsOwnerFilter(is_owner=True)) # allow bot admin actions only for bot owner
 
-# Declare handlers
-logger = structlog.get_logger()
+# Создаем отдельный роутер для команд без проверки на владельца
+common_router = Router()
+
+# Основные команды с проверкой на владельца
+router.message.filter(F.chat.type == "private", IsOwnerFilter(is_owner=True))
 
 # Handlers:
 @router.message(Command("start"))
 async def cmd_owner_hello(message: Message, l10n: FluentLocalization):
     await message.answer(
-        l10n.format_value("hello-owner")
+        l10n.format_value("hello-owner"),
+        parse_mode="HTML"
     )
 
-
-# Here is some example !ping command ...
 @router.message(
     IsOwnerFilter(is_owner=True),
     Command(commands=["ping"]),
 )
 async def cmd_ping_bot(message: Message, l10n: FluentLocalization):
-    await message.reply(l10n.format_value("ping-msg"))
+    await message.reply(
+        l10n.format_value("ping-msg"),
+        parse_mode="HTML"
+    )
 
-@router.message(Command("chatid"))
+# Команда без проверки на владельца
+@common_router.message(Command("chatid"))
 async def cmd_get_chat_id(message: Message):
-    """Временный обработчик для получения ID чата"""
+    """Обработчик для получения ID чата"""
     if message.forward_from_chat:
         await message.answer(
             f"Chat ID: {message.forward_from_chat.id}\n"
