@@ -1,43 +1,31 @@
 import asyncio
-
 import structlog
+
 from aiogram import Bot
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-
-from config_reader import get_config, BotConfig, LogConfig
-from logs import get_structlog_config
-from structlog.typing import FilteringBoundLogger
-
-from dispatcher import dp
-
+from config_reader import get_config, BotConfig
+from dispatcher import get_dispatcher
+from logs import init_logging
+from utils.db import create_db
 
 async def main():
-    # init logging
-    log_config: LogConfig = get_config(model=LogConfig, root_key="logs")
-    structlog.configure(**get_structlog_config(log_config))
-
-    # get bot config
-    bot_config: BotConfig = get_config(model=BotConfig, root_key="bot")
-
-    # init bot object
-    bot = Bot(
-        token=bot_config.token.get_secret_value(), # get token as secret, so it will be hidden in logs
-        default=DefaultBotProperties(
-            parse_mode=ParseMode.HTML # ParseMode (HTML or MARKDOWN_V2 is preferable)
-        )
-    )
-
-    # start the logger
-    logger: FilteringBoundLogger = structlog.get_logger()
+    """
+    Entry point
+    """
+    init_logging()
+    logger = structlog.get_logger()
+    
+    # Создаем таблицы в БД
+    await create_db()
+    
+    # Initialize bot and dispatcher
+    bot_config = get_config(BotConfig, "bot")
+    bot = Bot(token=bot_config.token.get_secret_value())
+    dp = get_dispatcher()
+    
+    # Run bot
     await logger.ainfo("Starting the bot...")
-
-    # start polling
-    try:
-        await dp.start_polling(bot, skip_updates=False) # Don't skip updates, if your bot will process payments or other important stuff
-    finally:
-        await bot.session.close()
-
+    await dp.start_polling(bot, skip_updates=False)
 
 if __name__ == "__main__":
     asyncio.run(main())
+    

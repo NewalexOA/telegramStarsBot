@@ -1,0 +1,31 @@
+[bot]
+# Bot token
+token = "YOUR_BOT_TOKEN"
+
+# Bot owners
+owners = [123456789, 987654321]
+
+# Required channel ID (with -100 prefix for private channels)
+required_channel_id = -1001234567890
+
+# Channel invite link
+required_channel_invite = "CHANNEL_INVITE_LINK"
+
+[logs]
+# Show datetime in logs?
+show_datetime = true
+
+# Datetime format
+datetime_format = "%Y-%m-%d %H:%M:%S"
+
+# Show debug logs?
+show_debug_logs = true
+
+# Use UTC time?
+time_in_utc = false
+
+# Log renderer (json or console)
+renderer = "console"
+
+# Use colors in console output?
+use_colors_in_console = true

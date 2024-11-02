@@ -1,0 +1,50 @@
+name: Deploy to Cloud.ru
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up SSH
+      uses: webfactory/ssh-agent@v0.5.3
+      with:
+        ssh-private-key: ${{ secrets.CLOUD_SERVER_SSH_KEY }}
+
+    - name: Create target directory on server
+      run: |
+        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "mkdir -p /home/anashkin/telegramStarsBot"
+
+    - name: Copy files to server
+      run: |
+        scp -o StrictHostKeyChecking=no -r * anashkin@45.155.205.196:/home/anashkin/telegramStarsBot
+
+    - name: Set up virtual environment and install dependencies
+      run: |
+        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 << 'EOF'
+          cd /home/anashkin/telegramStarsBot
+          python3 -m venv venv  # Создаём виртуальное окружение
+          source venv/bin/activate
+          pip install -r requirements.txt  # Устанавливаем зависимости
+        EOF
+
+    - name: Set up environment variables
+      run: |
+        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 << 'EOF'
+          cd /home/anashkin/telegramStarsBot
+          echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
+          echo "BOT_OWNERS=${{ secrets.BOT_OWNERS }}" >> .env
+          echo "BOT_REQUIRED_CHANNEL_ID=${{ secrets.BOT_REQUIRED_CHANNEL_ID }}" >> .env
+          echo "BOT_REQUIRED_CHANNEL_INVITE=${{ secrets.BOT_REQUIRED_CHANNEL_INVITE }}" >> .env
+        EOF
+
+    - name: Restart bot service
+      run: |
+        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "sudo systemctl restart telegram_bot"

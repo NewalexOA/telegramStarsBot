@@ -1,0 +1,22 @@
+[bot]
+# Payment provider token (для Stars Payments)
+provider_token = ""  # Оставляем пустым, так как используем Stars
+
+[logs]
+# Show datetime in logs?
+show_datetime = true
+
+# Datetime format
+datetime_format = "%Y-%m-%d %H:%M:%S"
+
+# Show debug logs?
+show_debug_logs = true
+
+# Use UTC time?
+time_in_utc = false
+
+# Log renderer (json or console)
+renderer = "console"
+
+# Use colors in console output?
+use_colors_in_console = true
