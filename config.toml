@@ -10,7 +10,7 @@ show_datetime = true
 datetime_format = "%Y-%m-%d %H:%M:%S"
 
 # Show debug logs?
-show_debug_logs = true
+show_debug_logs = false
 
 # Use UTC time?
 time_in_utc = false
