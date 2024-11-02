@@ -95,12 +95,24 @@ async def test_cmd_language():
 @pytest.mark.asyncio
 @patch('handlers.personal_actions.check_subscription')
 @patch('filters.is_subscribed.IsSubscribedFilter.__call__')
-async def test_check_subscription_callback(mock_is_subscribed, mock_check_subscription):
+@patch('filters.is_subscribed.get_config')
+async def test_check_subscription_callback(mock_get_config, mock_is_subscribed, mock_check_subscription):
     """Test subscription check callback handler"""
+    # Настраиваем мок конфигурации со всеми обязательными полями
+    mock_config = MagicMock()
+    mock_config.token = "test_token"
+    mock_config.owners = [123456]
+    mock_config.required_channel_id = -1002451767254
+    mock_config.required_channel_invite = "https://t.me/+test"
+    mock_config.provider_token = ""
+    
+    # Настраиваем возвращаемое значение для get_config
+    mock_get_config.return_value = mock_config
+    
     # Настраиваем мок для проверки подписки
     mock_is_subscribed.return_value = True
     mock_check_subscription.return_value = lambda x: x
-    
+
     # Создаем мок для пользователя
     user = AsyncMock(spec=User)
     user.id = 123456
@@ -110,8 +122,15 @@ async def test_check_subscription_callback(mock_is_subscribed, mock_check_subscr
     callback = AsyncMock(spec=CallbackQuery)
     callback.from_user = user
     callback.answer = AsyncMock()
-    
+    callback.message = AsyncMock()
+
+    # Создаем мок для l10n
+    l10n = AsyncMock()
+    l10n.format_value = lambda x: x
+
+    # Вызываем функцию без передачи l10n как отдельного аргумента
     await check_subscription_callback(callback)
-    
-    # Проверяем, что ответ на callback был отправлен
+
+    # Проверяем, что callback.answer был вызван
     callback.answer.assert_called_once()
+    

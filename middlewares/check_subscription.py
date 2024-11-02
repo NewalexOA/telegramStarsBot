@@ -109,5 +109,7 @@ def check_subscription(func: Callable) -> Callable:
                 await session.delete(pending)
                 await session.commit()
         
-        return await func(event, *args, **kwargs)
+        # Если подписка есть, выполняем оригинальную функцию
+        # Передаем все аргументы в оригинальную функцию
+        return await func(event, *args, **kwargs)  # Теперь передаются все аргументы
     return wrapper
