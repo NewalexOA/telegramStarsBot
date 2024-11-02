@@ -1,0 +1,36 @@
+name: Deploy to Cloud.ru
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up SSH
+      uses: webfactory/ssh-agent@v0.5.3
+      with:
+        ssh-private-key: ${{ secrets.CLOUD_SERVER_SSH_KEY }}
+
+    - name: Copy files to server
+      run: |
+        scp -o StrictHostKeyChecking=no -r . user@your_cloud.ru_server_ip:/home/user/telegramStarsBot
+
+    - name: Install dependencies and create .env file
+      run: |
+        ssh -o StrictHostKeyChecking=no user@your_cloud.ru_server_ip << 'EOF'
+          cd /home/user/telegramStarsBot
+          sudo apt update && sudo apt install -y python3-pip
+          pip3 install -r requirements.txt
+          echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
+          echo "BOT_OWNERS=${{ secrets.BOT_OWNERS }}" >> .env
+          echo "BOT_REQUIRED_CHANNEL_ID=${{ secrets.BOT_REQUIRED_CHANNEL_ID }}" >> .env
+          echo "BOT_REQUIRED_CHANNEL_INVITE=${{ secrets.BOT_REQUIRED_CHANNEL_INVITE }}" >> .env
+          python3 main.py &
+        EOF

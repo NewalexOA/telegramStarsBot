@@ -1,6 +1,7 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 from aiogram.types import Message, User, Chat, CallbackQuery
+from aiogram.utils.i18n import I18n
 from handlers.personal_actions import cmd_start, cmd_help, cmd_language, check_subscription_callback
 
 # Создаем фикстуру для I18n

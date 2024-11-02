@@ -1,6 +1,6 @@
 import pytest
 import pytest_asyncio
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator, Any, Callable
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
