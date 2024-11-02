@@ -20,7 +20,7 @@ jobs:
 
     - name: Copy files to server
       run: |
-        scp -o StrictHostKeyChecking=no -r . anashkin@45.155.205.196:/home/user/telegramStarsBot
+        scp -o StrictHostKeyChecking=no -r * anashkin@45.155.205.196:/home/user/telegramStarsBot
 
     - name: Install dependencies and create .env file
       run: |
