@@ -186,6 +186,5 @@ fabric.properties
 .idea
 
 # other
-config.toml
 /.ruff_cache/
 bot.db
