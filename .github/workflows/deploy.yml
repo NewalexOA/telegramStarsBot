@@ -18,6 +18,10 @@ jobs:
       with:
         ssh-private-key: ${{ secrets.CLOUD_SERVER_SSH_KEY }}
 
+    - name: Create target directory on server
+      run: |
+        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "mkdir -p /home/user/telegramStarsBot"
+  
     - name: Copy files to server
       run: |
         scp -o StrictHostKeyChecking=no -r * anashkin@45.155.205.196:/home/user/telegramStarsBot
