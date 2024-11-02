@@ -1,104 +1,78 @@
-from aiogram.filters import BaseFilter
-from aiogram.types import Message
-from aiogram.enums import ChatMemberStatus
-from aiogram.exceptions import TelegramBadRequest
 import structlog
-from config_reader import get_config, BotConfig
+from aiogram.filters import BaseFilter
+from aiogram.types import Message, CallbackQuery, ChatMemberOwner, ChatMemberAdministrator, ChatMemberMember
+from typing import Union
+
+from config_reader import BotConfig, get_config
+
+logger = structlog.get_logger()
 
 class IsSubscribedFilter(BaseFilter):
-    """
-    Filter that checks if user is subscribed to required channel
-    """
-    def __init__(self):
-        self.logger = structlog.get_logger()
-        bot_config: BotConfig = get_config(model=BotConfig, root_key="bot")
-        self.channel_id = bot_config.required_channel_id
+    def __init__(self) -> None:
+        # Получаем конфиг при инициализации фильтра
+        self.bot_config = get_config(BotConfig, "bot")  # Исправлен вызов функции
 
-    async def __call__(self, message: Message) -> bool:
+    async def __call__(self, event: Union[Message, CallbackQuery]) -> bool:
+        # Получаем бота из контекста события
+        bot = event.bot
+        
+        # Получаем ID пользователя
+        user_id = event.from_user.id
+        
+        # Логируем начало проверки
+        await logger.ainfo(
+            "Starting subscription check",
+            channel_id=self.bot_config.required_channel_id,
+            user_id=user_id,
+            username=event.from_user.username
+        )
+        
         try:
-            # Логируем начало проверки
-            await self.logger.ainfo(
-                "Starting subscription check",
-                user_id=message.from_user.id,
-                username=message.from_user.username,
-                channel_id=self.channel_id
-            )
-            
             # Получаем информацию о чате
-            chat = await message.bot.get_chat(chat_id=self.channel_id)
-            await self.logger.ainfo(
+            chat = await bot.get_chat(self.bot_config.required_channel_id)
+            await logger.ainfo(
                 "Got chat info",
                 chat_id=chat.id,
-                chat_type=chat.type,
                 chat_title=chat.title,
+                chat_type=chat.type,
                 chat_username=chat.username
             )
             
-            # Получаем информацию о боте в чате
-            bot_member = await message.bot.get_chat_member(
-                chat_id=self.channel_id,
-                user_id=message.bot.id
-            )
-            await self.logger.ainfo(
-                "Got bot member info",
-                bot_id=message.bot.id,
-                bot_status=bot_member.status,
-                can_manage_chat=getattr(bot_member, "can_manage_chat", False)
-            )
-            
             # Получаем статус участника
-            member = await message.bot.get_chat_member(
-                chat_id=self.channel_id,
-                user_id=message.from_user.id
+            member = await bot.get_chat_member(
+                chat_id=self.bot_config.required_channel_id,
+                user_id=user_id
             )
             
-            # Подробно логируем статус
-            await self.logger.ainfo(
+            # Логируем полученный статус
+            await logger.ainfo(
                 "Got member status",
-                user_id=message.from_user.id,
-                username=message.from_user.username,
+                raw_status=member.status,
                 status=member.status,
-                raw_status=str(member.status),
-                raw_data=member.model_dump()
+                user_id=user_id,
+                username=event.from_user.username
             )
-
-            # Проверяем статус
-            result = member.status in [
-                ChatMemberStatus.MEMBER,
-                ChatMemberStatus.ADMINISTRATOR,
-                ChatMemberStatus.CREATOR
-            ]
             
-            # Логируем результат
-            await self.logger.ainfo(
+            # Проверяем, является ли пользователь подписчиком
+            is_member = isinstance(member, (ChatMemberOwner, ChatMemberAdministrator, ChatMemberMember))
+            
+            # Логируем результат проверки
+            await logger.ainfo(
                 "Subscription check completed",
-                user_id=message.from_user.id,
-                username=message.from_user.username,
-                is_subscribed=result,
-                status=member.status
+                is_subscribed=is_member,
+                status=member.status,
+                user_id=user_id,
+                username=event.from_user.username
             )
             
-            return result
-
-        except TelegramBadRequest as e:
-            await self.logger.aerror(
-                "Telegram error while checking subscription",
-                user_id=message.from_user.id,
-                username=message.from_user.username,
-                error=str(e),
-                error_type=type(e).__name__,
-                channel_id=self.channel_id,
-                error_details=e.__dict__
-            )
-            return False
+            return is_member
+            
         except Exception as e:
-            await self.logger.aerror(
-                "Unexpected error while checking subscription",
-                user_id=message.from_user.id,
-                username=message.from_user.username,
+            # Логируем ошибку
+            await logger.aerror(
+                "Error checking subscription",
                 error=str(e),
-                error_type=type(e).__name__,
-                channel_id=self.channel_id,
-                error_details=e.__dict__
+                user_id=user_id,
+                username=event.from_user.username
             )
             return False

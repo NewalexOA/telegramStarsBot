@@ -10,6 +10,7 @@ from keyboards.subscription import get_subscription_keyboard
 from filters.chat_type import ChatTypeFilter
 from filters.referral import RegularStartCommandFilter
 from middlewares.check_subscription import check_subscription
+from filters.is_subscribed import IsSubscribedFilter
 
 # Declare router
 router = Router()
@@ -91,7 +92,14 @@ async def check_subscription_callback(callback: CallbackQuery, l10n):
     """
     Этот хэндлер будет вызван, когда пользователь нажмет на кнопку проверки подписки
     """
-    await callback.answer(l10n.format_value("subscription_checked"))
+    if await IsSubscribedFilter()(callback.message):
+        await callback.message.delete()
+        await callback.message.answer(l10n.format_value("subscription-confirmed"))
+    else:
+        await callback.answer(
+            l10n.format_value("subscription-check-failed"),
+            show_alert=True
+        )
 
 @router.callback_query(F.data == "show_donate")
 async def show_donate_info(callback: CallbackQuery, l10n):
