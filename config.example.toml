@@ -1,0 +1,12 @@
+[bot]
+# Bot token
+token = "YOUR_BOT_TOKEN"
+
+# Bot owners
+owners = [123456789, 987654321]
+
+# Required channel ID (with -100 prefix for private channels)
+required_channel_id = -1001234567890
+
+# Channel invite link
+required_channel_invite = "CHANNEL_INVITE_LINK" 
