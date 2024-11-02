@@ -20,11 +20,11 @@ jobs:
 
     - name: Copy files to server
       run: |
-        scp -o StrictHostKeyChecking=no -r . user@your_cloud.ru_server_ip:/home/user/telegramStarsBot
+        scp -o StrictHostKeyChecking=no -r . anashkin@45.155.205.196:/home/user/telegramStarsBot
 
     - name: Install dependencies and create .env file
       run: |
-        ssh -o StrictHostKeyChecking=no user@your_cloud.ru_server_ip << 'EOF'
+        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 << 'EOF'
           cd /home/user/telegramStarsBot
           sudo apt update && sudo apt install -y python3-pip
           pip3 install -r requirements.txt
