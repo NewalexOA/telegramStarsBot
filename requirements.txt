@@ -14,11 +14,12 @@ aiodns
 # aiodns # (aiohttp speedup) provides a simple way for doing asynchronous DNS resolutions
 
 # Other packages
-structlog
-pydantic
+colorama
 fluent.runtime
 fluent.syntax
-colorama
+pydantic
+pydantic_settings
+structlog
 
 ###############################################################
 ###     Some useful async libraries to use with aiogram     ###
