@@ -46,6 +46,7 @@ nosetests.xml
 coverage.xml
 *,cover
 .hypothesis/
+.pytest_cache/
 
 # Translations
 *.mo
@@ -185,5 +186,5 @@ fabric.properties
 .idea
 
 # other
-config.toml
 /.ruff_cache/
+bot.db

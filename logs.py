@@ -4,8 +4,27 @@ from json import dumps
 import structlog
 from structlog import WriteLoggerFactory
 
-from config_reader import LogConfig, LogRenderer
+from config_reader import LogConfig, LogRenderer, get_config
 
+
+def init_logging():
+    """Initialize logging configuration"""
+    # Получаем конфигурацию логирования
+    log_config = get_config(LogConfig, "logs")
+    
+    # Устанавливаем базовый уровень логирования
+    log_level = logging.DEBUG if log_config.show_debug_logs else logging.INFO
+    
+    # Настраиваем корневой логгер
+    logging.basicConfig(level=log_level)
+    
+    # Настраиваем уровни логирования для библиотек
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)  # Только важные SQL сообщения
+    logging.getLogger('aiosqlite').setLevel(logging.WARNING)         # Только важные SQLite сообщения
+    logging.getLogger('aiogram').setLevel(logging.INFO)             # Основные события бота
+    
+    # Настраиваем structlog
+    structlog.configure(**get_structlog_config(log_config))
 
 def get_structlog_config(
     log_config: LogConfig
@@ -15,12 +34,8 @@ def get_structlog_config(
     :param log_config: объект LogConfig with log parameters
     :return: dict with structlog config
     """
-
     # Show debug level logs?
-    if log_config.show_debug_logs is True:
-        min_level = logging.DEBUG
-    else:
-        min_level = logging.INFO
+    min_level = logging.DEBUG if log_config.show_debug_logs else logging.INFO
 
     return {
         "processors": get_processors(log_config),
@@ -28,7 +43,6 @@ def get_structlog_config(
         "wrapper_class": structlog.make_filtering_bound_logger(min_level),
         "logger_factory": WriteLoggerFactory()
     }
-
 
 def get_processors(log_config: LogConfig) -> list:
     """
