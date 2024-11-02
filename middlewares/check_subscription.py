@@ -42,7 +42,7 @@ class CheckSubscriptionMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 def check_subscription(func: Callable) -> Callable:
-    """Декоратор для проверки подписки пользователя"""
+    """Декоратор для проверки подписки"""
     @wraps(func)
     async def wrapper(event: CallbackQuery, *args, **kwargs):
         # Проверяем подписку
@@ -54,6 +54,6 @@ def check_subscription(func: Callable) -> Callable:
             return
         
         # Если подписка есть, выполняем оригинальную функцию
-        return await func(event, *args, **kwargs)
-    
-    return wrapper 
+        # Передаем все аргументы в оригинальную функцию
+        return await func(event, *args, **kwargs)  # Теперь передаются все аргументы
+    return wrapper
