@@ -1,11 +1,9 @@
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config_reader import get_config, BotConfig
-from filters.is_subscribed import IsSubscribedFilter
 
-async def get_subscription_keyboard(message) -> InlineKeyboardMarkup:
+async def get_subscription_keyboard(message, is_subscribed: bool = False) -> InlineKeyboardMarkup:
     """Get subscription keyboard based on subscription status"""
-    is_subscribed = await IsSubscribedFilter()(message)
     bot_config = get_config(BotConfig, "bot")
     kb = InlineKeyboardBuilder()
     
@@ -20,14 +18,10 @@ async def get_subscription_keyboard(message) -> InlineKeyboardMarkup:
             callback_data="check_subscription"
         )
     else:
-        # Кнопки для подписанных пользователей
+        # Кнопка для подписанных пользователей
         kb.button(
             text="🎮 Запустить новеллу",
             callback_data="start_novel"
-        )
-        kb.button(
-            text="💝 Донат автору",
-            callback_data="show_donate"
         )
     
     kb.adjust(1)  # Кнопки в столбик
