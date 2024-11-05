@@ -8,7 +8,7 @@ import structlog
 from filters.is_subscribed import IsSubscribedFilter
 from keyboards.subscription import get_subscription_keyboard
 from models.referral import PendingReferral
-from handlers.referral import process_referral
+from utils.referral_processor import process_referral
 
 logger = structlog.get_logger()
 
@@ -60,22 +60,19 @@ class CheckSubscriptionMiddleware(BaseMiddleware):
             
             return await handler(event, data)
         else:
-            # Используем локализованное сообщение
             l10n = data.get('l10n')
             if isinstance(event, Message):
                 await event.answer(
-                    l10n.format_value("subscription-check-failed"),  # Используем локализованный текст
+                    l10n.format_value("subscription-check-failed"),
                     reply_markup=await get_subscription_keyboard(event),
                     parse_mode="HTML"
                 )
             else:
                 await event.answer(
-                    l10n.format_value("subscription-check-failed"),  # Используем локализованный текст
+                    l10n.format_value("subscription-check-failed"),
                     show_alert=True
                 )
             return
-        
-        return await handler(event, data)
 
 def check_subscription(func: Callable) -> Callable:
     """Декоратор для проверки подписки"""
@@ -89,7 +86,6 @@ def check_subscription(func: Callable) -> Callable:
             )
             return
             
-        # Проверяем наличие отложенного реферала
         session = kwargs.get('session')
         if session:
             result = await session.execute(
@@ -109,7 +105,5 @@ def check_subscription(func: Callable) -> Callable:
                 await session.delete(pending)
                 await session.commit()
         
-        # Если подписка есть, выполняем оригинальную функцию
-        # Передаем все аргументы в оригинальную функцию
-        return await func(event, *args, **kwargs)  # Теперь передаются все аргументы
+        return await func(event, *args, **kwargs)
     return wrapper
