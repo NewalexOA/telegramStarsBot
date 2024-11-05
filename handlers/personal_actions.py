@@ -29,9 +29,21 @@ async def cmd_start(message: Message, session: AsyncSession, l10n):
     """
     Этот хэндлер будет вызван только для обычной команды /start без реферального кода
     """
-    # Проверяем наличие активной новеллы и статус подписки
+    # Проверяем, является ли пользователь админом или владельцем
+    is_admin = await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message)
+    
     novel_service = NovelService(session)
     novel_state = await novel_service.get_novel_state(message.from_user.id)
+    
+    if is_admin:
+        await message.answer(
+            l10n.format_value("hello-msg"),
+            reply_markup=get_main_menu(has_active_novel=bool(novel_state), is_admin=True),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Для обычных пользователей проверяем статус подписки
     is_subscribed = await IsSubscribedFilter()(message)
     
     # Выбираем нужную клавиатуру
@@ -47,7 +59,7 @@ async def cmd_start(message: Message, session: AsyncSession, l10n):
 async def menu_novel(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопки Новелла"""
     # Проверяем, является ли пользователь админом или владельцем
-    if await IsAdminFilter()(message) or await IsOwnerFilter()(message):
+    if await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter()(message):
         await start_novel_common(message, session, l10n)
         return
         
@@ -260,7 +272,7 @@ async def menu_continue(message: Message, session: AsyncSession, l10n):
         if last_message:
             await message.answer(last_message)
         else:
-            await message.answer("Не удалось найти последнее сообщение. Попробуйте наисать что-нибудь, чтобы продолжить.")
+            await message.answer("Не удалось найти последнее сообщение. Попробуйте наисать что-нибудь, чобы продолжить.")
             
     except Exception as e:
         logger.error(f"Error in menu_continue: {e}")
