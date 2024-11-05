@@ -44,3 +44,7 @@ pytest
 pytest-asyncio
 pytest-cov
 coverage
+
+# Дополнительные пакеты для работы с OpenAI
+openai>=1.0.0
+aiohttp>=3.9.5
