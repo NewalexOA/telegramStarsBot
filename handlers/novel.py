@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.novel import NovelService
 from filters.chat_type import ChatTypeFilter
 from filters.is_subscribed import IsSubscribedFilter
+from filters.is_admin import IsAdminFilter
+from filters.is_owner import IsOwnerFilter
 from middlewares.check_subscription import check_subscription
 from keyboards.subscription import get_subscription_keyboard
 from keyboards.menu import get_main_menu
@@ -66,9 +68,34 @@ async def start_novel_button(callback: CallbackQuery, session: AsyncSession, l10
     await start_novel_common(callback.message, session, l10n)
     await callback.answer()  # Закрываем уведомление о нажатии
 
+@router.message(F.text == "🎮 Новелла")
+async def menu_novel(message: Message, session: AsyncSession, l10n):
+    """Обработчик кнопки Новелла"""
+    # Проверяем, является ли пользователь админом или владельцем
+    if await IsAdminFilter()(message) or await IsOwnerFilter()(message):
+        await start_novel_common(message, session, l10n)
+        return
+        
+    # Для обычных пользователей проверяем подписку
+    if not await IsSubscribedFilter()(message):
+        await message.answer(
+            l10n.format_value("subscription-required"),
+            reply_markup=await get_subscription_keyboard(message),
+            parse_mode="HTML"
+        )
+        return
+    
+    await start_novel_common(message, session, l10n)
+
 @router.message(F.text == "🔄 Рестарт")
 async def restart_novel(message: Message, session: AsyncSession, l10n):
     """Перезапуск новеллы через кнопку меню"""
+    # Проверяем, является ли пользователь админом или владельцем
+    if await IsAdminFilter()(message) or await IsOwnerFilter()(message):
+        await start_novel_common(message, session, l10n)
+        return
+        
+    # Для обычных пользователей проверяем подписку
     if not await IsSubscribedFilter()(message):
         await message.answer(
             l10n.format_value("subscription-required"),

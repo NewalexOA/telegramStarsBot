@@ -15,6 +15,8 @@ from middlewares.check_subscription import check_subscription
 from keyboards.menu import get_main_menu
 from services.novel import NovelService
 from handlers.novel import start_novel_common  # Добавляем в начало файла
+from filters.is_admin import IsAdminFilter
+from filters.is_owner import IsOwnerFilter
 
 logger = structlog.get_logger()
 
@@ -25,7 +27,7 @@ router.message.filter(ChatTypeFilter(["private"]))
 @router.message(Command("start"), RegularStartCommandFilter())
 async def cmd_start(message: Message, session: AsyncSession, l10n):
     """
-    Этот хэндлер будет ��ызван только для обычной команды /start без реферального кода
+    Этот хэндлер будет вызван только для обычной команды /start без реферального кода
     """
     # Проверяем наличие активной новеллы и статус подписки
     novel_service = NovelService(session)
@@ -44,6 +46,12 @@ async def cmd_start(message: Message, session: AsyncSession, l10n):
 @router.message(F.text == "🎮 Новелла")
 async def menu_novel(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопки Новелла"""
+    # Проверяем, является ли пользователь админом или владельцем
+    if await IsAdminFilter()(message) or await IsOwnerFilter()(message):
+        await start_novel_common(message, session, l10n)
+        return
+        
+    # Для обычных пользователей проверяем подписку
     if not await IsSubscribedFilter()(message):
         await message.answer(
             l10n.format_value("subscription-required"),
@@ -52,26 +60,7 @@ async def menu_novel(message: Message, session: AsyncSession, l10n):
         )
         return
     
-    # Если пользователь подписан, запускаем новеллу
-    novel_service = NovelService(session)
-    user_id = message.from_user.id
-    
-    try:
-        # Проверяем, есть ли уже активная новелла
-        novel_state = await novel_service.get_novel_state(user_id)
-        if novel_state:
-            # Если новелла уже запущена, показываем последнее сообщение
-            last_message = await novel_service.get_last_assistant_message(novel_state)
-            if last_message:
-                await message.answer(last_message)
-            else:
-                await message.answer("У вас уже есть активная новелла. Отправьте сообщение, чтобы продолжить, или нажмите '🔄 Рестарт' для начала новой игры.")
-        else:
-            # Если новеллы нет, запускаем через общую функцию
-            await start_novel_common(message, session, l10n)
-    except Exception as e:
-        logger.error(f"Error in menu_novel: {e}")
-        await message.answer(l10n.format_value("novel-error"))
+    await start_novel_common(message, session, l10n)
 
 @router.message(F.text == "💝 Донат")
 async def menu_donate(message: Message, l10n):
@@ -172,7 +161,7 @@ async def check_subscription_callback(callback: CallbackQuery, session: AsyncSes
         novel_service = NovelService(session)
         novel_state = await novel_service.get_novel_state(callback.from_user.id)
         
-        # Создаем ��еню в зависимости от наличия активной новеллы
+        # Создаем еню в зависимости от наличия активной новеллы
         menu = get_main_menu(has_active_novel=bool(novel_state))
         
         await callback.message.answer(
