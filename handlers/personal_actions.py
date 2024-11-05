@@ -4,29 +4,102 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from fluent.runtime import FluentLocalization
+from filters.is_subscribed import IsSubscribedFilter
 from keyboards.subscription import get_subscription_keyboard
 from filters.chat_type import ChatTypeFilter
 from filters.referral import RegularStartCommandFilter
 from middlewares.check_subscription import check_subscription
-from filters.is_subscribed import IsSubscribedFilter
+from keyboards.menu import get_main_menu
+from services.novel import NovelService
+from handlers.novel import start_novel_common  # Добавляем в начало файла
+
+logger = structlog.get_logger()
 
 # Declare router
 router = Router()
 router.message.filter(ChatTypeFilter(["private"]))
 
-# Declare logger
-logger = structlog.get_logger()
-
 @router.message(Command("start"), RegularStartCommandFilter())
-async def cmd_start(message: Message, l10n):
+async def cmd_start(message: Message, session: AsyncSession, l10n):
     """
-    Этот хэндлер будет вызван только для обычной команды /start без реферального кода
+    Этот хэндлер будет ��ызван только для обычной команды /start без реферального кода
     """
+    # Проверяем наличие активной новеллы и статус подписки
+    novel_service = NovelService(session)
+    novel_state = await novel_service.get_novel_state(message.from_user.id)
+    is_subscribed = await IsSubscribedFilter()(message)
+    
+    # Выбираем нужную клавиатуру
+    reply_markup = get_main_menu(has_active_novel=bool(novel_state)) if is_subscribed else await get_subscription_keyboard(message, is_subscribed=False)
+    
     await message.answer(
         l10n.format_value("hello-msg"),
-        reply_markup=await get_subscription_keyboard(message),
+        reply_markup=reply_markup,
+        parse_mode="HTML"
+    )
+
+@router.message(F.text == "🎮 Новелла")
+async def menu_novel(message: Message, session: AsyncSession, l10n):
+    """Обработчик кнопки Новелла"""
+    if not await IsSubscribedFilter()(message):
+        await message.answer(
+            l10n.format_value("subscription-required"),
+            reply_markup=await get_subscription_keyboard(message),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Если пользователь подписан, запускаем новеллу
+    novel_service = NovelService(session)
+    user_id = message.from_user.id
+    
+    try:
+        # Проверяем, есть ли уже активная новелла
+        novel_state = await novel_service.get_novel_state(user_id)
+        if novel_state:
+            # Если новелла уже запущена, показываем последнее сообщение
+            last_message = await novel_service.get_last_assistant_message(novel_state)
+            if last_message:
+                await message.answer(last_message)
+            else:
+                await message.answer("У вас уже есть активная новелла. Отправьте сообщение, чтобы продолжить, или нажмите '🔄 Рестарт' для начала новой игры.")
+        else:
+            # Если новеллы нет, запускаем через общую функцию
+            await start_novel_common(message, session, l10n)
+    except Exception as e:
+        logger.error(f"Error in menu_novel: {e}")
+        await message.answer(l10n.format_value("novel-error"))
+
+@router.message(F.text == "💝 Донат")
+async def menu_donate(message: Message, l10n):
+    """Обработчик кнопки Донат"""
+    await message.answer(
+        l10n.format_value("donate-input-error"),
+        parse_mode="HTML"
+    )
+
+@router.message(F.text == "🔄 Рестарт")
+async def menu_restart(message: Message, session: AsyncSession, l10n):
+    """Обработчик кнопки Рестарт"""
+    if not await IsSubscribedFilter()(message):
+        await message.answer(
+            l10n.format_value("subscription-required"),
+            reply_markup=await get_subscription_keyboard(message),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Используем общую функцию для запуска новеллы
+    await start_novel_common(message, session, l10n)
+
+@router.message(F.text == "❓ Помощь")
+async def menu_help(message: Message, l10n):
+    """Обработчик кнопки Помощь"""
+    await message.answer(
+        l10n.format_value("help"),
         parse_mode="HTML"
     )
 
@@ -88,13 +161,24 @@ async def cmd_language(message: Message, l10n):
 
 @router.callback_query(F.data == "check_subscription")
 @check_subscription
-async def check_subscription_callback(callback: CallbackQuery, l10n):
+async def check_subscription_callback(callback: CallbackQuery, session: AsyncSession, l10n):
     """
-    Этот хэндлер будет вызван, когда пользователь нажмет на кнопку проверки подписки
+    Этот хэндлер будет выван, когда пользователь нажмет на кнопку проверки подписки
     """
     if await IsSubscribedFilter()(callback.message):
         await callback.message.delete()
-        await callback.message.answer(l10n.format_value("subscription-confirmed"))
+        
+        # Проверяем наличие активной новеллы
+        novel_service = NovelService(session)
+        novel_state = await novel_service.get_novel_state(callback.from_user.id)
+        
+        # Создаем ��еню в зависимости от наличия активной новеллы
+        menu = get_main_menu(has_active_novel=bool(novel_state))
+        
+        await callback.message.answer(
+            l10n.format_value("subscription-confirmed"),
+            reply_markup=menu
+        )
     else:
         await callback.answer(
             l10n.format_value("subscription-check-failed"),
@@ -106,15 +190,6 @@ async def show_donate_info(callback: CallbackQuery, l10n):
     """Показываем информацию о донате"""
     await callback.message.answer(
         l10n.format_value("donate-input-error"),
-        parse_mode="HTML"
-    )
-    await callback.answer()
-
-@router.callback_query(F.data == "start_novel")
-async def start_novel(callback: CallbackQuery, l10n):
-    """Начинаем новеллу"""
-    await callback.message.answer(
-        "Запуск новеллы... (в разработке)",
         parse_mode="HTML"
     )
     await callback.answer()
@@ -162,7 +237,7 @@ async def pre_checkout_query(query: PreCheckoutQuery, l10n: FluentLocalization):
 
 @router.message(F.successful_payment)
 async def on_successful_payment(message: Message, l10n: FluentLocalization):
-    """Обработчик успешного платежа"""
+    """Обрабтчик успешного платежа"""
     await message.answer(
         l10n.format_value(
             "donate-successful-payment",
@@ -171,3 +246,33 @@ async def on_successful_payment(message: Message, l10n: FluentLocalization):
         parse_mode="HTML",
         message_effect_id="5159385139981059251"
     )
+
+@router.message(F.text == "📖 Продолжить")
+async def menu_continue(message: Message, session: AsyncSession, l10n):
+    """Обработчик кнопки Продолжить"""
+    if not await IsSubscribedFilter()(message):
+        await message.answer(
+            l10n.format_value("subscription-required"),
+            reply_markup=await get_subscription_keyboard(message),
+            parse_mode="HTML"
+        )
+        return
+    
+    novel_service = NovelService(session)
+    user_id = message.from_user.id
+    
+    try:
+        novel_state = await novel_service.get_novel_state(user_id)
+        if not novel_state:
+            await message.answer("У вас нет активной новеллы. Нажмите '🎮 Новелла' чтобы начать.")
+            return
+            
+        last_message = await novel_service.get_last_assistant_message(novel_state)
+        if last_message:
+            await message.answer(last_message)
+        else:
+            await message.answer("Не удалось найти последнее сообщение. Попробуйте наисать что-нибудь, чтобы продолжить.")
+            
+    except Exception as e:
+        logger.error(f"Error in menu_continue: {e}")
+        await message.answer("Произошла ошибка. Пожалуйста, попробуйте ещё раз.")

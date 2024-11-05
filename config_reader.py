@@ -1,12 +1,15 @@
 from enum import StrEnum
-from typing import Any, Optional
-from pydantic import SecretStr, field_validator
+from pathlib import Path
+from typing import Any, Type, Union
+from pydantic import BaseModel, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import structlog
+import tomli
 
 logger = structlog.get_logger()
 
 class LogRenderer(StrEnum):
+    """Log renderer type"""
     JSON = "json"
     CONSOLE = "console"
 
@@ -17,29 +20,28 @@ class BotConfig(BaseSettings):
     required_channel_id: int
     required_channel_invite: str
     provider_token: str = ""
+    openai_api_key: SecretStr
+    assistant_id: str
 
     @field_validator("owners", mode="before")
     @classmethod
-    def parse_owners(cls, v: Any) -> list[int]:
+    def parse_owners(cls, v):
         if isinstance(v, str):
             try:
                 v = v.strip('[]').replace(' ', '')
                 return [int(x) for x in v.split(',') if x]
-            except ValueError as e:
-                logger.error("Failed to parse owners: Invalid format", error=str(e), value=v)
+            except Exception as e:
+                logger.error("Failed to parse owners", error=str(e), value=v)
                 raise ValueError(f"Invalid owners format: {v}")
-        elif not isinstance(v, list):
-            raise TypeError(f"Expected a list or a string, got {type(v).__name__}")
         return v
 
     model_config = SettingsConfigDict(
         env_prefix="BOT_",
         env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore"
+        env_file_encoding="utf-8"
     )
 
-class LogConfig(BaseSettings):
+class LogConfig(BaseModel):
     """Log configuration"""
     show_datetime: bool
     datetime_format: str
@@ -48,29 +50,29 @@ class LogConfig(BaseSettings):
     renderer: LogRenderer
     use_colors_in_console: bool
 
-    model_config = SettingsConfigDict(
-        env_prefix="LOG_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore"
-    )
-
-def get_config(config_type: type[BaseSettings], root_key: Optional[str] = None) -> Any:
+def get_config(config_type: Type[Union[BotConfig, LogConfig]], root_key: str | None = None) -> Any:
     """Get configuration instance"""
-    try:
-        # Пробуем загрузить из .env
-        return config_type()
-    except Exception as e:
-        logger.warning("Failed to load config from .env", error=str(e))
+    # Для BotConfig используем .env
+    if config_type == BotConfig:
+        return BotConfig()
         
-        # Если не получилось, читаем из TOML
-        import tomli
-        config_path = "config.toml"
-        
-        with open(config_path, "rb") as f:
-            config_dict = tomli.load(f)
+    # Для LogConfig используем config.toml
+    if config_type == LogConfig:
+        try:
+            config_path = Path(__file__).parent / "config.toml"
+            if not config_path.exists():
+                raise FileNotFoundError("config.toml not found")
+                
+            with open(config_path, "rb") as f:
+                raw_config = tomli.load(f)
+                
+            if root_key not in raw_config:
+                raise KeyError(f"Section {root_key} not found in config.toml")
+                
+            return LogConfig.model_validate(raw_config[root_key])
             
-        if root_key is not None:
-            config_dict = config_dict[root_key]
+        except Exception as e:
+            logger.error("Failed to load log config from TOML", error=str(e))
+            raise
             
-        return config_type(**config_dict)
+    raise ValueError(f"Unsupported config type: {config_type}")

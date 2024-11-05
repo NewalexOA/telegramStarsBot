@@ -6,6 +6,7 @@ from config_reader import get_config, BotConfig
 from dispatcher import get_dispatcher
 from logs import init_logging
 from utils.db import create_db
+from utils.openai_helper import create_assistant
 
 async def main():
     """
@@ -21,6 +22,11 @@ async def main():
     bot_config = get_config(BotConfig, "bot")
     bot = Bot(token=bot_config.token.get_secret_value())
     dp = get_dispatcher()
+    
+    # Создаём ассистента при первом запуске
+    if not bot_config.assistant_id:
+        assistant_id = await create_assistant()
+        logger.info(f"Created new assistant with ID: {assistant_id}")
     
     # Run bot
     await logger.ainfo("Starting the bot...")
