@@ -1,4 +1,4 @@
-name: Deploy to Cloud.ru
+name: Deploy to New Server
 
 on:
   push:
@@ -20,25 +20,25 @@ jobs:
 
     - name: Create target directory on server
       run: |
-        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "mkdir -p /home/anashkin/telegramStarsBot"
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "mkdir -p /home/root/telegramStarsBot"
 
     - name: Copy files to server
       run: |
-        scp -o StrictHostKeyChecking=no -r * anashkin@45.155.205.196:/home/anashkin/telegramStarsBot
+        scp -o StrictHostKeyChecking=no -r * root@185.239.48.81:/home/root/telegramStarsBot
 
     - name: Set up virtual environment and install dependencies
       run: |
-        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "cd /home/anashkin/telegramStarsBot && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
 
     - name: Set up environment variables
       run: |
-        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "cd /home/anashkin/telegramStarsBot && echo 'BOT_TOKEN=${{ secrets.BOT_TOKEN }}' > .env"
-        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "cd /home/anashkin/telegramStarsBot && echo 'BOT_OWNERS=${{ secrets.BOT_OWNERS }}' >> .env"
-        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "cd /home/anashkin/telegramStarsBot && echo 'BOT_REQUIRED_CHANNEL_ID=${{ secrets.BOT_REQUIRED_CHANNEL_ID }}' >> .env"
-        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "cd /home/anashkin/telegramStarsBot && echo 'BOT_REQUIRED_CHANNEL_INVITE=${{ secrets.BOT_REQUIRED_CHANNEL_INVITE }}' >> .env"
-        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "cd /home/anashkin/telegramStarsBot && echo 'BOT_OPENAI_API_KEY=${{ secrets.BOT_OPENAI_API_KEY }}' >> .env"
-        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "cd /home/anashkin/telegramStarsBot && echo 'BOT_ASSISTANT_ID=${{ secrets.BOT_ASSISTANT_ID }}' >> .env"
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && echo 'BOT_TOKEN=${{ secrets.BOT_TOKEN }}' > .env"
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && echo 'BOT_OWNERS=${{ secrets.BOT_OWNERS }}' >> .env"
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && echo 'BOT_REQUIRED_CHANNEL_ID=${{ secrets.BOT_REQUIRED_CHANNEL_ID }}' >> .env"
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && echo 'BOT_REQUIRED_CHANNEL_INVITE=${{ secrets.BOT_REQUIRED_CHANNEL_INVITE }}' >> .env"
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && echo 'BOT_OPENAI_API_KEY=${{ secrets.BOT_OPENAI_API_KEY }}' >> .env"
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && echo 'BOT_ASSISTANT_ID=${{ secrets.BOT_ASSISTANT_ID }}' >> .env"
 
     - name: Restart bot service
       run: |
-        ssh -o StrictHostKeyChecking=no anashkin@45.155.205.196 "sudo systemctl restart telegram_bot"
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "sudo systemctl restart telegram_bot"
