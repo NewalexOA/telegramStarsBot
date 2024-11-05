@@ -1,17 +1,16 @@
-from typing import Union
 from aiogram.filters import BaseFilter
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message
+from config_reader import get_config, BotConfig
 
-from config_reader import BotConfig, get_config
+bot_config = get_config(BotConfig, "bot")
 
 class IsOwnerFilter(BaseFilter):
+    """
+    Filter that checks if user is bot owner
+    """
     def __init__(self, is_owner: bool) -> None:
         self.is_owner = is_owner
 
-    async def __call__(self, event: Union[Message, CallbackQuery]) -> bool:
-        bot_config = get_config(BotConfig, "bot")
-        
-        user_id = event.from_user.id
-        is_owner = user_id in bot_config.owners
-        
+    async def __call__(self, message: Message) -> bool:
+        is_owner = message.from_user.id in bot_config.owners
         return is_owner == self.is_owner

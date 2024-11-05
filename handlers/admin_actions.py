@@ -1,51 +1,89 @@
-from aiogram import Router, F, Bot
-from aiogram.filters import Command, CommandStart, CommandObject
-from aiogram.types import Message, InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+import structlog
+from aiogram import Router
+from aiogram.filters import Command, F
+from aiogram.types import Message
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 
-from fluent.runtime import FluentLocalization
-from filters.is_owner import IsOwnerFilter
+from filters.chat_type import ChatTypeFilter
+from filters.is_admin import IsAdminFilter
+from services.novel import NovelService
+from keyboards.menu import get_main_menu
+from models.referral import Referral
 
-# Declare router
+logger = structlog.get_logger()
+
 router = Router()
+router.message.filter(ChatTypeFilter(["private"]))
+router.message.filter(IsAdminFilter(is_admin=True))
 
-# Создаем отдельный роутер для команд без проверки на владельца
-common_router = Router()
+@router.message(Command("ping"))
+async def cmd_ping(message: Message):
+    """Проверка работоспособности бота"""
+    await message.answer("Pong!")
 
-# Основные команды с проверкой на владельца
-router.message.filter(IsOwnerFilter(is_owner=True))
-
-# Handlers:
-@router.message(Command("start"))
-async def cmd_owner_hello(message: Message, l10n: FluentLocalization):
-    """Приветствие для владельца"""
+@router.message(Command("get_id"))
+async def cmd_get_id(message: Message):
+    """Получение ID пользователя/чата"""
     await message.answer(
-        l10n.format_value("hello-owner"),
-        parse_mode="HTML"
+        f"User ID: {message.from_user.id}\n"
+        f"Chat ID: {message.chat.id}"
     )
 
-@router.message(
-    IsOwnerFilter(is_owner=True),
-    Command(commands=["ping"]),
-)
-async def cmd_ping_bot(message: Message, l10n: FluentLocalization):
-    await message.reply(
-        l10n.format_value("ping-msg"),
-        parse_mode="HTML"
-    )
-
-# Команда без проверки на владельца
-@common_router.message(Command("chatid"))
-async def cmd_get_chat_id(message: Message):
-    """Обработчик для получения ID чата"""
-    if message.forward_from_chat:
+@router.message(Command("end_novel"))
+async def cmd_end_novel(message: Message, session: AsyncSession, l10n):
+    """Команда для принудительного завершения новеллы админом"""
+    novel_service = NovelService(session)
+    novel_state = await novel_service.get_novel_state(message.from_user.id)
+    
+    if novel_state:
+        await novel_service.end_story(novel_state, message)
         await message.answer(
-            f"Chat ID: {message.forward_from_chat.id}\n"
-            f"Type: {message.forward_from_chat.type}\n"
-            f"Title: {message.forward_from_chat.title}"
+            "Новелла завершена",
+            reply_markup=get_main_menu(has_active_novel=False)
         )
     else:
-        await message.answer(
-            f"Current chat ID: {message.chat.id}\n"
-            f"Type: {message.chat.type}"
+        await message.answer("У вас нет активной новеллы")
+
+@router.message(F.text == "📊 Статистика")
+async def show_stats(message: Message, session: AsyncSession):
+    """Показывает статистику реферальной программы"""
+    try:
+        # Получаем общее количество рефералов
+        total_referrals = await session.scalar(
+            select(func.count()).select_from(Referral)
         )
+        
+        # Получаем количество уникальных рефереров
+        unique_referrers = await session.scalar(
+            select(func.count(func.distinct(Referral.referrer_id))).select_from(Referral)
+        )
+        
+        # Получаем топ-5 рефереров
+        top_referrers_query = select(
+            Referral.referrer_id,
+            func.count().label('ref_count')
+        ).group_by(
+            Referral.referrer_id
+        ).order_by(
+            func.count().desc()
+        ).limit(5)
+        
+        top_referrers = await session.execute(top_referrers_query)
+        
+        # Формируем сообщение
+        stats_message = (
+            "📊 Статистика реферальной программы:\n\n"
+            f"Всего рефералов: {total_referrals}\n"
+            f"Уникальных рефереров: {unique_referrers}\n\n"
+            "Топ-5 рефереров:\n"
+        )
+        
+        for referrer_id, count in top_referrers:
+            stats_message += f"ID {referrer_id}: {count} рефералов\n"
+        
+        await message.answer(stats_message)
+        
+    except Exception as e:
+        logger.error(f"Error showing stats: {e}")
+        await message.answer("Произошла ошибка при получении статистики")

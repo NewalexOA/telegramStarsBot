@@ -9,6 +9,7 @@ import time
 from models.novel import NovelState, NovelMessage
 from utils.openai_helper import openai_client, send_assistant_response
 from utils.text_utils import extract_images_and_clean_text
+from keyboards.menu import get_main_menu
 
 logger = structlog.get_logger()
 bot_config = get_config(BotConfig, "bot")
@@ -174,22 +175,26 @@ class NovelService:
             await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте ещё раз.")
 
     async def end_story(self, novel_state: NovelState, message: Message, silent: bool = False) -> None:
-        """Завершение истории"""
+        """Завершает новеллу и очищает данные"""
         try:
-            await openai_client.beta.threads.delete(thread_id=novel_state.thread_id)
-            
-            # Помечаем новеллу как завершенную перед удалением
+            # Увеличиваем счетчик завершений
+            novel_state.completions_count += 1
             novel_state.is_completed = True
             await self.session.commit()
             
-            # Удаляем состояние новеллы (каскадно удалятся и сообщения)
-            await self.session.delete(novel_state)
-            await self.session.commit()
+            # Удаляем тред в OpenAI
+            try:
+                await openai_client.beta.threads.delete(thread_id=novel_state.thread_id)
+            except Exception as e:
+                logger.error(f"Error deleting thread: {e}")
             
-            logger.info(f"Story completed for user {novel_state.user_id}")
             if not silent:
-                await message.answer("История завершена! Чтобы начать новую историю, используйте команду /start")
+                await message.answer(
+                    "История завершена! Чтобы начать новую, нажмите '🎮 Новелла'",
+                    reply_markup=get_main_menu(has_active_novel=False)
+                )
+                
         except Exception as e:
             logger.error(f"Error ending story: {e}")
             if not silent:
-                await message.answer("Произошла ошибка при завершении истории.")
+                await message.answer("Произошла ошибка при завершении истории")

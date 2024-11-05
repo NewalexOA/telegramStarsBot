@@ -12,11 +12,15 @@ from middlewares.check_subscription import check_subscription
 from keyboards.subscription import get_subscription_keyboard
 from keyboards.menu import get_main_menu
 from utils.openai_helper import openai_client
+from models.enums import RewardType
+from utils.rewards import check_balance, spend_reward
 
 logger = structlog.get_logger()
 
 router = Router()
 router.message.filter(ChatTypeFilter(["private"]))
+
+RESTART_COST = 10  # Стоимость перезапуска в звездах
 
 async def start_novel_common(message: Message, session: AsyncSession, l10n):
     """Общая логика запуска новеллы"""
@@ -72,7 +76,7 @@ async def start_novel_button(callback: CallbackQuery, session: AsyncSession, l10
 async def menu_novel(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопки Новелла"""
     # Проверяем, является ли пользователь админом или владельцем
-    if await IsAdminFilter()(message) or await IsOwnerFilter()(message):
+    if await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message):
         await start_novel_common(message, session, l10n)
         return
         
@@ -85,13 +89,37 @@ async def menu_novel(message: Message, session: AsyncSession, l10n):
         )
         return
     
+    # Проверяем, есть ли завершенные прохождения
+    novel_service = NovelService(session)
+    novel_state = await novel_service.get_novel_state(message.from_user.id)
+    
+    if novel_state and novel_state.completions_count > 0:
+        # Проверяем баланс звезд
+        balance = await check_balance(session, message.from_user.id, RewardType.CHAPTER_UNLOCK)
+        if balance < RESTART_COST:
+            await message.answer(
+                f"Для повторного прохождения новеллы нужно {RESTART_COST} звезд. "
+                f"У вас сейчас {balance} звезд. Пригласите друзей, чтобы получить больше звезд!"
+            )
+            return
+            
+        # Списываем звезды
+        await spend_reward(
+            session, 
+            message.from_user.id, 
+            RewardType.CHAPTER_UNLOCK, 
+            RESTART_COST,
+            "Повторное прохождение новеллы"
+        )
+        await message.answer(f"Списано {RESTART_COST} звезд за повторный запуск новеллы.")
+    
     await start_novel_common(message, session, l10n)
 
 @router.message(F.text == "🔄 Рестарт")
 async def restart_novel(message: Message, session: AsyncSession, l10n):
     """Перезапуск новеллы через кнопку меню"""
     # Проверяем, является ли пользователь админом или владельцем
-    if await IsAdminFilter()(message) or await IsOwnerFilter()(message):
+    if await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter()(message):
         await start_novel_common(message, session, l10n)
         return
         
