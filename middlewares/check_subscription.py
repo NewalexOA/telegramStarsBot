@@ -17,7 +17,9 @@ class CheckSubscriptionMiddleware(BaseMiddleware):
         self.excluded_commands = [
             '/donate', '/donat', '/донат',
             '/help',
-            '/start'
+            '/start',
+            '📊 Статистика',
+            '🗑 Очистить базу'
         ]
         if excluded_commands:
             self.excluded_commands.extend(excluded_commands)

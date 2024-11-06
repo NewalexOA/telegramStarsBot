@@ -6,8 +6,8 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from filters.chat_type import ChatTypeFilter
 from filters.is_admin import IsAdminFilter
 from services.novel import NovelService
 from keyboards.menu import get_main_menu
@@ -16,8 +16,8 @@ from models.referral import Referral
 logger = structlog.get_logger()
 
 router = Router()
-router.message.filter(ChatTypeFilter(["private"]))
 router.message.filter(IsAdminFilter(is_admin=True))
+router.callback_query.filter(IsAdminFilter(is_admin=True))
 
 @router.message(Command("ping"))
 async def cmd_ping(message: Message):
@@ -50,6 +50,7 @@ async def cmd_end_novel(message: Message, session: AsyncSession, l10n):
 @router.message(F.text == "📊 Статистика")
 async def menu_stats(message: Message, session: AsyncSession):
     """Показывает статистику реферальной программы"""
+    logger.info(f"Stats requested by admin {message.from_user.id}")
     try:
         # Получаем общее количество рефералов
         total_referrals = await session.scalar(
@@ -84,31 +85,53 @@ async def menu_stats(message: Message, session: AsyncSession):
         for referrer_id, count in top_referrers:
             stats_message += f"ID {referrer_id}: {count} рефералов\n"
         
-        await message.answer(stats_message)
+        await message.answer(
+            stats_message,
+            reply_markup=get_main_menu(is_admin=True)
+        )
+        logger.info(f"Stats sent to admin {message.from_user.id}")
         
     except Exception as e:
-        logger.error(f"Error showing stats: {e}")
-        await message.answer("Произошла ошибка при получении статистики")
+        logger.error(f"Error showing stats: {e}", exc_info=True)
+        await message.answer(
+            "Произошла ошибка при получении статистики",
+            reply_markup=get_main_menu(is_admin=True)
+        )
 
 @router.message(F.text == "🗑 Очистить базу")
-async def cmd_clear_db(message: Message, l10n):
+async def menu_clear_db(message: Message, l10n):
     """Команда для очистки базы данных"""
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Да", callback_data="clear_db_confirm")
-    kb.button(text="❌ Нет", callback_data="clear_db_cancel")
-    kb.adjust(2)
-    
-    await message.answer(
-        l10n.format_value("clear-db-confirm"),
-        reply_markup=kb.as_markup()
-    )
+    logger.info(f"Database cleanup requested by admin {message.from_user.id}")
+    try:
+        kb = InlineKeyboardBuilder()
+        kb.button(text="✅ Да", callback_data="clear_db_confirm")
+        kb.button(text="❌ Нет", callback_data="clear_db_cancel")
+        kb.adjust(2)
+        
+        await message.answer(
+            l10n.format_value("clear-db-confirm"),
+            reply_markup=kb.as_markup()
+        )
+    except Exception as e:
+        logger.error(f"Error showing cleanup confirmation: {e}", exc_info=True)
+        await message.answer(
+            "Произошла ошибка при обработке команды",
+            reply_markup=get_main_menu(is_admin=True)
+        )
 
 @router.callback_query(F.data == "clear_db_confirm")
-async def clear_db_confirm(callback: CallbackQuery, l10n):
+async def clear_db_confirm(callback: CallbackQuery, session: AsyncSession, l10n):
     """Подтверждение очистки базы"""
     try:
-        # Закрываем соединение с базой
-        await callback.message.bot.session_pool.close()
+        # Закрываем текущую сессию
+        await session.close()
+        
+        # Создаем новый engine для закрытия всех соединений
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///bot.db",
+            echo=False
+        )
+        await engine.dispose()
         
         # Удаляем файл базы данных
         if os.path.exists("bot.db"):
@@ -122,7 +145,7 @@ async def clear_db_confirm(callback: CallbackQuery, l10n):
         os._exit(0)
         
     except Exception as e:
-        logger.error(f"Error clearing database: {e}")
+        logger.error(f"Error clearing database: {e}", exc_info=True)
         await callback.message.edit_text(
             l10n.format_value("clear-db-error", {"error": str(e)})
         )
@@ -131,31 +154,3 @@ async def clear_db_confirm(callback: CallbackQuery, l10n):
 async def clear_db_cancel(callback: CallbackQuery):
     """Отмена очистки базы"""
     await callback.message.delete()
-
-@router.message(F.text == "🔧 Админ-панель")
-async def menu_admin_panel(message: Message):
-    """Обработчик кнопки Админ-панель"""
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Управление пользователями", callback_data="admin_users")
-    kb.button(text="Управление контентом", callback_data="admin_content")
-    kb.adjust(1)
-    
-    await message.answer(
-        "Панель администратора\n\n"
-        "Выберите раздел:",
-        reply_markup=kb.as_markup()
-    )
-
-@router.message(F.text == "⚙️ Настройки")
-async def menu_settings(message: Message):
-    """Обработчик кнопки Настройки"""
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Настройки бота", callback_data="settings_bot")
-    kb.button(text="Настройки новеллы", callback_data="settings_novel")
-    kb.adjust(1)
-    
-    await message.answer(
-        "Настройки\n\n"
-        "Выберите категорию:",
-        reply_markup=kb.as_markup()
-    )
