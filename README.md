@@ -16,7 +16,7 @@ Interactive visual novel bot powered by OpenAI GPT-4 with dynamic storyline and 
 
 ## Technical Stack
 
-- Python 3.10+
+- Python 3.12+
 - aiogram 3.x (Telegram Bot framework)
 - OpenAI GPT-4 API
 - SQLAlchemy (Database ORM)
