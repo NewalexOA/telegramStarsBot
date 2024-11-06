@@ -27,11 +27,12 @@ router.message.filter(ChatTypeFilter(["private"]))
 
 # Константы для приоритетов
 PRIORITIES = {
-    "COMMAND": 5,
-    "MENU": 4,
-    "CALLBACK": 3,
-    "PAYMENT": 2,
-    "TEXT": 1
+    "COMMAND": 9,
+    "ADMIN": 8,
+    "MENU": 7,
+    "CALLBACK": 6,
+    "PAYMENT": 5,
+    "TEXT": 4
 }
 
 RESTART_COST = 10
@@ -397,7 +398,7 @@ async def handle_message(message: Message, session: AsyncSession):
         novel_state = await novel_service.get_novel_state(user_id)
         if not novel_state:
             await message.answer(
-                "Пожалуйста, нажмите кнопку '🎮 Новелла'",
+                "Пожалуйста, нажмите кнопку '�� Новелла'",
                 reply_markup=get_main_menu(has_active_novel=False)
             )
             return

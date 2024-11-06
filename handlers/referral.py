@@ -19,6 +19,12 @@ router = Router()
 router.message.filter(ChatTypeFilter(["private"]))
 logger = structlog.get_logger()
 
+REFERRAL_PRIORITIES = {
+    "START": 8,
+    "MANAGE": 7,
+    "INFO": 6
+}
+
 async def process_referral(
     session: AsyncSession, 
     ref_code: str, 
@@ -136,7 +142,11 @@ async def cmd_get_ref_link(message: Message, session: AsyncSession):
             parse_mode="HTML"
         )
 
-@router.message(Command("start"), ReferralCommandFilter())
+@router.message(
+    Command("start"),
+    ReferralCommandFilter(),
+    flags={"priority": REFERRAL_PRIORITIES["START"]}
+)
 async def cmd_start_with_ref(message: Message, session: AsyncSession, l10n):
     """Обработка только реферальных команд /start ref_code"""
     args = message.text.split()

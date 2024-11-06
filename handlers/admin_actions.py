@@ -19,7 +19,17 @@ router = Router()
 router.message.filter(IsAdminFilter(is_admin=True))
 router.callback_query.filter(IsAdminFilter(is_admin=True))
 
-@router.message(Command("ping"))
+# Добавляем константы приоритетов
+ADMIN_PRIORITIES = {
+    "SYSTEM": 10,  # Системные команды
+    "MANAGE": 9,   # Управление ботом
+    "UTIL": 8      # Утилитарные команды
+}
+
+@router.message(
+    Command("ping"),
+    flags={"priority": ADMIN_PRIORITIES["SYSTEM"]}
+)
 async def cmd_ping(message: Message):
     """Проверка работоспособности бота"""
     await message.answer("Pong!")
@@ -98,7 +108,10 @@ async def menu_stats(message: Message, session: AsyncSession):
             reply_markup=get_main_menu(is_admin=True)
         )
 
-@router.message(F.text == "🗑 Очистить базу")
+@router.message(
+    F.text == "🗑 Очистить базу",
+    flags={"priority": ADMIN_PRIORITIES["MANAGE"]}
+)
 async def menu_clear_db(message: Message, l10n):
     """Команда для очистки базы данных"""
     logger.info(f"Database cleanup requested by admin {message.from_user.id}")

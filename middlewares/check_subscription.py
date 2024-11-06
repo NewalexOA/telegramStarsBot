@@ -13,17 +13,19 @@ from utils.referral_processor import process_referral
 logger = structlog.get_logger()
 
 class CheckSubscriptionMiddleware(BaseMiddleware):
-    def __init__(self, excluded_commands: List[str] = None):
-        self.excluded_commands = [
-            '/donate', '/donat', '/донат',
-            '/help',
+    def __init__(self):
+        self.excluded_commands = {
             '/start',
+            '/help',
+            '/donate',
+            '/donat',
+            '/донат',
+            '/ping',
+            '/get_id',
             '📊 Статистика',
             '🗑 Очистить базу'
-        ]
-        if excluded_commands:
-            self.excluded_commands.extend(excluded_commands)
-
+        }
+        
     async def __call__(
         self,
         handler: Callable[[Message | CallbackQuery, Dict[str, Any]], Awaitable[Any]],
@@ -31,10 +33,9 @@ class CheckSubscriptionMiddleware(BaseMiddleware):
         data: Dict[str, Any]
     ) -> Any:
         if isinstance(event, Message) and event.text:
-            command = event.text.split()[0].lower()
-            if command in self.excluded_commands:
+            if event.text.split()[0] in self.excluded_commands:
                 return await handler(event, data)
-
+                
         user_id = event.from_user.id
         
         is_subscribed = await IsSubscribedFilter()(event)
