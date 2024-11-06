@@ -40,8 +40,8 @@ async def cmd_start(message: Message, session: AsyncSession, l10n):
     novel_state = await novel_service.get_novel_state(message.from_user.id)
     
     # Проверяем, завершил ли пользователь новеллу ранее
-    if novel_state and novel_state.is_completed:
-        # Отправляем счет на оплату рестарта
+    if novel_state and novel_state.is_completed and not is_admin:  # Добавляем проверку not is_admin
+        # Отправляем счет на оплату рестарта только обычным пользователям
         await send_restart_invoice(message, l10n)
         return
     
@@ -69,7 +69,9 @@ async def cmd_start(message: Message, session: AsyncSession, l10n):
 async def menu_novel(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопки Новелла"""
     # Проверяем, является ли пользователь админом или владельцем
-    if await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message):
+    is_admin = await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message)
+    
+    if is_admin:
         await start_novel_common(message, session, l10n)
         return
         
@@ -104,6 +106,13 @@ async def menu_donate(message: Message, l10n):
 @router.message(F.text == "🔄 Рестарт")
 async def menu_restart(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопки Рестарт"""
+    # Проверяем, является ли пользователь админом или владельцем
+    is_admin = await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message)
+    
+    if is_admin:
+        await start_novel_common(message, session, l10n)
+        return
+        
     if not await IsSubscribedFilter()(message):
         await message.answer(
             l10n.format_value("subscription-required"),
@@ -188,7 +197,7 @@ async def check_subscription_callback(callback: CallbackQuery, session: AsyncSes
     if await IsSubscribedFilter()(callback.message):
         await callback.message.delete()
         
-        # П��оверяем наличие активной новеллы
+        # Поверяем наличие активной новеллы
         novel_service = NovelService(session)
         novel_state = await novel_service.get_novel_state(callback.from_user.id)
         
