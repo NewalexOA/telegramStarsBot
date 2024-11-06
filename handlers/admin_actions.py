@@ -141,7 +141,7 @@ async def clear_db_confirm(callback: CallbackQuery, session: AsyncSession, l10n)
             l10n.format_value("clear-db-success")
         )
         
-        # Перезапускаем бота
+        # Просто завершаем процесс, systemd перезапустит сервис
         os._exit(0)
         
     except Exception as e:
