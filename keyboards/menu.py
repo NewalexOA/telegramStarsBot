@@ -22,6 +22,7 @@ def get_main_menu(has_active_novel: bool = False, is_admin: bool = False) -> Rep
         builder.button(text="🔧 Админ-панель")
         builder.button(text="📊 Статистика")
         builder.button(text="⚙️ Настройки")
+        builder.button(text="🗑 Очистить базу")
     
     # Общие кнопки
     builder.button(text="🔗 Реферальная ссылка")
@@ -33,7 +34,7 @@ def get_main_menu(has_active_novel: bool = False, is_admin: bool = False) -> Rep
         if has_active_novel:
             builder.adjust(2, 2, 2, 2, 1)  # 9 кнопок: 2-2-2-2-1
         else:
-            builder.adjust(2, 2, 2, 1)  # 7 кнопок: 2-2-2-1
+            builder.adjust(2, 2, 2, 2)  # 8 кнопок: 2-2-2-2
     else:
         if has_active_novel:
             builder.adjust(2, 2, 2)  # 6 кнопок: 2-2-2
