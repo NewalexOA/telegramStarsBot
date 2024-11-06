@@ -4,14 +4,14 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from filters.is_admin import IsAdminFilter
 from services.novel import NovelService
 from keyboards.menu import get_main_menu
 from models.referral import Referral
+from models.base import Base
 
 logger = structlog.get_logger()
 
@@ -123,6 +123,11 @@ async def menu_clear_db(message: Message, l10n):
 async def clear_db_confirm(callback: CallbackQuery, session: AsyncSession, l10n):
     """Подтверждение очистки базы"""
     try:
+        # Сначала отправляем сообщение об успехе
+        await callback.message.edit_text(
+            l10n.format_value("clear-db-success")
+        )
+        
         # Закрываем текущую сессию
         await session.close()
         
@@ -137,11 +142,16 @@ async def clear_db_confirm(callback: CallbackQuery, session: AsyncSession, l10n)
         if os.path.exists("bot.db"):
             os.remove("bot.db")
             
-        await callback.message.edit_text(
-            l10n.format_value("clear-db-success")
+        # Создаем новую пустую базу данных перед завершением
+        new_engine = create_async_engine(
+            "sqlite+aiosqlite:///bot.db",
+            echo=False
         )
-        
-        # Просто завершаем процесс, systemd перезапустит сервис
+        async with new_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await new_engine.dispose()
+            
+        # Завершаем процесс
         os._exit(0)
         
     except Exception as e:
