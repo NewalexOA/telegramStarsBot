@@ -1,15 +1,17 @@
 from aiogram.filters import BaseFilter
 from aiogram.types import Message
-from aiogram.enums import ChatMemberStatus
+from config_reader import get_config, BotConfig
+
+bot_config = get_config(BotConfig, "bot")
 
 class IsAdminFilter(BaseFilter):
     """
-    Filter that checks for admin rights existence
+    Filter that checks if user is admin
     """
     def __init__(self, is_admin: bool) -> None:
         self.is_admin = is_admin
 
     async def __call__(self, message: Message) -> bool:
-        member = await message.chat.get_member(message.from_user.id)
-        is_admin = member.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR]
+        # Проверяем, является ли пользователь владельцем бота
+        is_admin = message.from_user.id in bot_config.owners
         return is_admin == self.is_admin

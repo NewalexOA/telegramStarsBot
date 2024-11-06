@@ -14,6 +14,13 @@ from keyboards.menu import get_main_menu
 logger = structlog.get_logger()
 bot_config = get_config(BotConfig, "bot")
 
+# В начале файла
+SKIP_COMMANDS = {
+    "🎮 Новелла", "📖 Продолжить", "🔄 Рестарт", 
+    "💝 Донат", "❓ Помощь", "🔗 Реферальная ссылка",
+    "📊 Статистика", "🗑 Очистить базу"
+}
+
 class NovelService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -118,7 +125,6 @@ class NovelService:
                     raise Exception("Thread not found")
             except Exception as e:
                 logger.error(f"Thread validation failed: {e}")
-                # Создаем новый тред если старый не найден
                 thread = await openai_client.beta.threads.create()
                 novel_state.thread_id = thread.id
                 await self.session.commit()
@@ -126,7 +132,8 @@ class NovelService:
             if not initial_message:
                 # Проверяем, не является ли сообщение командой или служебным текстом
                 text = message.text
-                if text.startswith('/') or text in ["🎮 Новелла", "📖 Продолжить", "🔄 Рестарт", "💝 Донат", "❓ Помощь"]:
+                # Список команд, которые не должны обрабатываться в process_message
+                if text.startswith('/') or text in SKIP_COMMANDS:
                     return
                 
                 # Получаем последние сообщения треда для проверки финальной сцены

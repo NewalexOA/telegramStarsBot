@@ -21,3 +21,13 @@ async def create_db():
     except Exception as e:
         await logger.aerror("Error creating database tables", error=str(e))
         raise
+
+async def close_db_connections(engine):
+    """Закрытие соединений с базой данных"""
+    logger = structlog.get_logger()
+    try:
+        await engine.dispose()
+        logger.info("Database connections closed")
+    except Exception as e:
+        logger.error(f"Error closing database connections: {e}", exc_info=True)
+        raise
