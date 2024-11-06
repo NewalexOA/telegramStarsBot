@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Any, Awaitable, List
+from typing import Callable, Dict, Any, Awaitable
 from functools import wraps
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery

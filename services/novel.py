@@ -4,10 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.types import Message
 from config_reader import get_config, BotConfig
-import time
+from typing import Optional
 
 from models.novel import NovelState, NovelMessage
-from utils.openai_helper import openai_client, send_assistant_response
+from utils.openai_helper import openai_client
 from utils.text_utils import extract_images_and_clean_text
 from keyboards.menu import get_main_menu
 
@@ -22,6 +22,10 @@ SKIP_COMMANDS = {
 }
 
 class NovelService:
+    # Увеличиваем максимальное время ожидания
+    MAX_WAIT_TIME = 60  # секунд
+    MAX_RETRIES = 3     # количество попыток
+    
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -116,125 +120,73 @@ class NovelService:
         return message.content if message else None
 
     async def process_message(self, message: Message, novel_state: NovelState, initial_message: bool = False) -> None:
-        """Обработка сообщения пользователя"""
+        """Обработка сообщения через OpenAI Assistant"""
         try:
-            # Проверяем существование треда перед использованием
-            try:
-                thread = await openai_client.beta.threads.retrieve(thread_id=novel_state.thread_id)
-                if not thread:
-                    raise Exception("Thread not found")
-            except Exception as e:
-                logger.error(f"Thread validation failed: {e}")
-                thread = await openai_client.beta.threads.create()
-                novel_state.thread_id = thread.id
-                await self.session.commit()
-                logger.info(f"Created new thread: {thread.id}")
+            # Проверяем, не является ли сообщение командой или кнопкой меню
+            if message.text in SKIP_COMMANDS:
+                return
 
-            text = message.text
-            logger.info(f"Processing message: {text}")
-
-            if initial_message:
-                # Для первого сообщения отправляем специальный промпт
-                await openai_client.beta.threads.messages.create(
-                    thread_id=novel_state.thread_id,
-                    role="user",
-                    content="Начни с шага '0. Инициализация:' и спроси моё имя."
-                )
-                logger.info("Sent initial prompt")
+            # Очищаем текст от изображений
+            clean_text = await extract_images_and_clean_text(message.text)
+            
+            # Отправляем сообщение ассистенту
+            response = await self._get_assistant_response(clean_text, novel_state)
+            
+            if response:
+                # Проверяем на наличие маркеров финальной сцены
+                is_final = any(marker in response.lower() for marker in [
+                    "финальная сцена:",
+                    "final scene:",
+                    "### финальная сцена",
+                    "### final scene"
+                ])
+                
+                # Очищаем текст от служебных маркеров
+                cleaned_response = response
+                for marker in [
+                    "### ФИНАЛЬНАЯ СЦЕНА:", 
+                    "ФИНАЛЬНАЯ СЦЕНА:", 
+                    "### Final Scene:", 
+                    "Final Scene:"
+                ]:
+                    cleaned_response = cleaned_response.replace(marker, "").strip()
+                
+                # Отправляем очищенный ответ
+                await message.answer(cleaned_response)
+                
+                # Если это финальная сцена, завершаем новеллу
+                if is_final:
+                    await logger.ainfo("Final scene detected, ending story")
+                    await self.end_story(novel_state, message)
+                    return
+                    
             else:
-                # Сохраняем сообщение пользователя
-                await self.save_message(novel_state, text, is_user=True)
-                logger.info("User message saved")
+                await message.answer("Произошла ошибка при обработке сообщения")
                 
-                # Проверяем количество сообщений в треде
-                messages = await openai_client.beta.threads.messages.list(
-                    thread_id=novel_state.thread_id
-                )
-                
-                if len(messages.data) == 2:  # Первый вопрос и первый ответ (имя)
-                    logger.info("Processing name response")
-                    character_prompt = f"""Теперь представь персонажей, строго следуя формату из сценария, и только после этого начни первую сцену. 
-                    
-                    ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{text}". История должна быть полностью персонализирована под это имя.
-                    
-                    Каждый персонаж должен быть представлен с фотографией на отдельной строке в формате [AI отправляет фото: ![название](ссылка)]"""
-                    
-                    await openai_client.beta.threads.messages.create(
-                        thread_id=novel_state.thread_id,
-                        role="user",
-                        content=character_prompt
-                    )
-                    logger.info("Sent character introduction prompt")
-                else:
-                    # Обычное сообщение
-                    await openai_client.beta.threads.messages.create(
-                        thread_id=novel_state.thread_id,
-                        role="user",
-                        content=text
-                    )
-                    logger.info("Sent regular message")
-
-            # Запускаем ассистента
-            run = await openai_client.beta.threads.runs.create(
-                thread_id=novel_state.thread_id,
-                assistant_id=bot_config.assistant_id
-            )
-            logger.info(f"Started run {run.id}")
-
-            # Ожидаем завершения
-            start_time = time.time()
-            while True:
-                run = await openai_client.beta.threads.runs.retrieve(
-                    thread_id=novel_state.thread_id,
-                    run_id=run.id
-                )
-                if run.status == "completed":
-                    break
-                elif run.status == "failed":
-                    raise Exception("Assistant run failed")
-                elif time.time() - start_time > 30:
-                    raise Exception("Assistant run timeout")
-                await asyncio.sleep(1)
-
-            duration = time.time() - start_time
-            logger.info(f"Run completed in {duration:.2f} seconds")
-
-            # Получаем и обрабатываем ответ ассистента
-            messages = await openai_client.beta.threads.messages.list(
-                thread_id=novel_state.thread_id
-            )
-            assistant_message = messages.data[0].content[0].text.value
-            
-            logger.info(f"Raw assistant response:\n{assistant_message}")
-            cleaned_text, image_ids = extract_images_and_clean_text(assistant_message)
-            logger.info(f"Found image IDs: {image_ids}")
-            logger.info(f"Cleaned text:\n{cleaned_text}")
-            
-            # Сохраняем ответ ассистента
-            await self.save_message(novel_state, cleaned_text)
-            logger.info("Assistant message saved to database")
-            
-            # Отправляем ответ пользователю
-            await send_assistant_response(message, assistant_message)
-            logger.info("Response sent to user")
-
         except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
-            await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте ещё раз.")
+            await logger.aerror("Error processing message", error=str(e))
+            await message.answer("Произошла ошибка при обработке сообщения")
 
     async def end_story(self, novel_state: NovelState, message: Message, silent: bool = False) -> None:
-        """Завершает новеллу и очищает данные"""
+        """Завершает новеллу и очищает д��нные"""
         try:
-            # Устанавливаем флаг необходимости оплаты
+            # Устанавливаем флаги в БД
             novel_state.needs_payment = True
             novel_state.is_completed = True
-            await self.session.commit()
+            try:
+                await self.session.commit()
+            except Exception as e:
+                logger.error(f"Error saving novel state: {e}")
+                raise
             
             # Удаляем тред в OpenAI
-            try:
-                await openai_client.beta.threads.delete(thread_id=novel_state.thread_id)
-            except Exception as e:
-                logger.error(f"Error deleting thread: {e}")
+            if novel_state.thread_id:
+                try:
+                    await openai_client.beta.threads.delete(thread_id=novel_state.thread_id)
+                except Exception as e:
+                    logger.error(f"Error deleting OpenAI thread: {e}", 
+                               thread_id=novel_state.thread_id)
+                    # Не прерываем выполнение из-за ошибки удаления треда
             
             if not silent:
                 await message.answer(
@@ -243,6 +195,80 @@ class NovelService:
                 )
                 
         except Exception as e:
-            logger.error(f"Error ending story: {e}")
+            logger.error(f"Error ending story: {e}", exc_info=True)
             if not silent:
                 await message.answer("Произошла ошибка при завершении истории")
+            raise
+
+    async def process_message_openai(self, message: str) -> Optional[str]:
+        """Обработка сообщения через OpenAI Assistant"""
+        logger = structlog.get_logger()
+        
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                # Отправляем сообщение ассистенту
+                await self.client.messages.create(
+                    thread_id=self.thread_id,
+                    role="user",
+                    content=message
+                )
+                
+                # Запускаем обработку
+                run = await self.client.runs.create(
+                    thread_id=self.thread_id,
+                    assistant_id=self.assistant_id
+                )
+                
+                start_time = asyncio.get_event_loop().time()
+                
+                # Ожидаем завершения с периодической проверкой
+                while True:
+                    run = await self.client.runs.retrieve(
+                        thread_id=self.thread_id,
+                        run_id=run.id
+                    )
+                    
+                    if run.status == "completed":
+                        # Получаем ответ
+                        messages = await self.client.messages.list(
+                            thread_id=self.thread_id
+                        )
+                        return messages.data[0].content[0].text.value
+                        
+                    elif run.status == "failed":
+                        await logger.aerror(
+                            "Assistant run failed",
+                            status=run.status,
+                            last_error=run.last_error
+                        )
+                        break
+                        
+                    # Проверяем таймаут
+                    elapsed = asyncio.get_event_loop().time() - start_time
+                    if elapsed > self.MAX_WAIT_TIME:
+                        await logger.awarning(
+                            "Assistant run timeout",
+                            attempt=attempt + 1,
+                            elapsed_time=elapsed
+                        )
+                        break
+                        
+                    await asyncio.sleep(1)
+                    
+            except Exception as e:
+                await logger.aerror(
+                    "Error processing message",
+                    error=str(e),
+                    attempt=attempt + 1
+                )
+                
+            # Если это была последняя попытка
+            if attempt == self.MAX_RETRIES - 1:
+                raise Exception(
+                    f"Assistant run failed after {self.MAX_RETRIES} attempts"
+                )
+                
+            # Делаем паузу перед следующей попыткой
+            await asyncio.sleep(2 ** attempt)  # Экспоненциальная задержка
+            
+        return None

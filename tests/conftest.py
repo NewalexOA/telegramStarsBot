@@ -1,12 +1,11 @@
 import pytest
 import pytest_asyncio
-from typing import AsyncGenerator, Any, Callable
+from typing import AsyncGenerator, Any
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.types import User
+from aiogram.types import User, Message, Chat
 
-from models.base import Base
 from models.enums import RewardType
 from config_reader import BotConfig, get_config
 
@@ -23,16 +22,9 @@ async def engine() -> AsyncGenerator[Any, None]:
     """Create test database engine"""
     test_engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
-        echo=True,
+        echo=False
     )
-    
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
     yield test_engine
-    
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
     await test_engine.dispose()
 
 @pytest_asyncio.fixture
@@ -77,3 +69,17 @@ def dp() -> Dispatcher:
 def reward_type() -> RewardType:
     """Create test reward type"""
     return RewardType.CHAPTER_UNLOCK
+
+@pytest.fixture
+async def message() -> Message:
+    """Создает тестовое сообщение"""
+    return Message(
+        message_id=1,
+        date=1,
+        chat=Chat(id=1, type="private"),
+        from_user=User(
+            id=1,
+            is_bot=False,
+            first_name="Test"
+        )
+    )

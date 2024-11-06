@@ -188,3 +188,4 @@ fabric.properties
 # other
 /.ruff_cache/
 bot.db
+/image_cache
