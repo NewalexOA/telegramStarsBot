@@ -128,124 +128,97 @@ class NovelService:
                 thread = await openai_client.beta.threads.create()
                 novel_state.thread_id = thread.id
                 await self.session.commit()
+                logger.info(f"Created new thread: {thread.id}")
 
-            if not initial_message:
-                # Проверяем, не является ли сообщение командой или служебным текстом
-                text = message.text
-                # Список команд, которые не должны обрабатываться в process_message
-                if text.startswith('/') or text in SKIP_COMMANDS:
-                    return
+            text = message.text
+            logger.info(f"Processing message: {text}")
+
+            if initial_message:
+                # Для первого сообщения отправляем специальный промпт
+                await openai_client.beta.threads.messages.create(
+                    thread_id=novel_state.thread_id,
+                    role="user",
+                    content="Начни с шага '0. Инициализация:' и спроси моё имя."
+                )
+                logger.info("Sent initial prompt")
+            else:
+                # Сохраняем сообщение пользователя
+                await self.save_message(novel_state, text, is_user=True)
+                logger.info("User message saved")
                 
-                # Получаем последние сообщения треда для проверки финальной сцены
+                # Проверяем количество сообщений в треде
                 messages = await openai_client.beta.threads.messages.list(
                     thread_id=novel_state.thread_id
                 )
                 
-                # Проверяем, не была ли достигнута финальная сцена или конец истории
-                if messages.data and ("Финальная сцена:" in messages.data[0].content[0].text.value or 
-                                    "Конец истории" in messages.data[0].content[0].text.value):
-                    await self.end_story(novel_state, message)
-                    return
-                
-                # Сохраняем сообщение ползователя
-                await self.save_message(novel_state, text, is_user=True)
-                
-                # Добавляем сообщение пользователя в тред
-                await openai_client.beta.threads.messages.create(
-                    thread_id=novel_state.thread_id,
-                    role="user",
-                    content=text
-                )
-                
-                # Проверяем, является ли это первым ответом (имя)
-                if len(messages.data) == 2:  # Первый вопрос и первый ответ
-                    logger.info("Sending character introduction prompt")
+                if len(messages.data) == 2:  # Первый вопрос и первый ответ (имя)
+                    logger.info("Processing name response")
+                    character_prompt = f"""Теперь представь персонажей, строго следуя формату из сценария, и только после этого начни первую сцену. 
+                    
+                    ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{text}". История должна быть полностью персонализирована под это имя.
+                    
+                    Каждый персонаж должен быть представлен с фотографией на отдельной строке в формате [AI отправляет фото: ![название](ссылка)]"""
+                    
                     await openai_client.beta.threads.messages.create(
                         thread_id=novel_state.thread_id,
                         role="user",
-                        content=f"""Теперь представь персонажей, строго следуя формату из сценария, и только после этого начни первую сцену. 
-                        
-                        ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{text}". История должна быть полностью перонализирована под это имя.
-                        
-                        Каждый персонаж должен быть представлен с фотографией на отдельной строке в формате [AI отправляет фото: ![название](ссылка)]"""
+                        content=character_prompt
                     )
+                    logger.info("Sent character introduction prompt")
+                else:
+                    # Обычное сообщение
+                    await openai_client.beta.threads.messages.create(
+                        thread_id=novel_state.thread_id,
+                        role="user",
+                        content=text
+                    )
+                    logger.info("Sent regular message")
 
-            # Запускаем выполнение
-            start_time = time.time()
+            # Запускаем ассистента
             run = await openai_client.beta.threads.runs.create(
                 thread_id=novel_state.thread_id,
                 assistant_id=bot_config.assistant_id
             )
             logger.info(f"Started run {run.id}")
 
-            # Ждём завершения выполнения
+            # Ожидаем завершения
+            start_time = time.time()
             while True:
-                run_status = await openai_client.beta.threads.runs.retrieve(
+                run = await openai_client.beta.threads.runs.retrieve(
                     thread_id=novel_state.thread_id,
                     run_id=run.id
                 )
-                if run_status.status == 'completed':
-                    logger.info(f"Run completed in {time.time() - start_time:.2f} seconds")
+                if run.status == "completed":
                     break
-                elif run_status.status == 'requires_action':
-                    # Обрабатываем вызов функции end_story
-                    tool_calls = run_status.required_action.submit_tool_outputs.tool_calls
-                    tool_outputs = []
-                    
-                    for tool_call in tool_calls:
-                        if tool_call.function.name == "end_story":
-                            await self.end_story(novel_state, message)
-                            tool_outputs.append({
-                                "tool_call_id": tool_call.id,
-                                "output": "Story ended successfully"
-                            })
-                    
-                    # Отправляем результаты выполнения функций
-                    await openai_client.beta.threads.runs.submit_tool_outputs(
-                        thread_id=novel_state.thread_id,
-                        run_id=run.id,
-                        tool_outputs=tool_outputs
-                    )
-                elif run_status.status == 'failed':
-                    logger.error(f"Run failed: {run_status.last_error}")
+                elif run.status == "failed":
                     raise Exception("Assistant run failed")
+                elif time.time() - start_time > 30:
+                    raise Exception("Assistant run timeout")
                 await asyncio.sleep(1)
 
-            # Получаем и сохраняем ответ ассистента
+            duration = time.time() - start_time
+            logger.info(f"Run completed in {duration:.2f} seconds")
+
+            # Получаем и обрабатываем ответ ассистента
             messages = await openai_client.beta.threads.messages.list(
                 thread_id=novel_state.thread_id
             )
             assistant_message = messages.data[0].content[0].text.value
             
-            # Логируем сырой ответ и результаты обработки
             logger.info(f"Raw assistant response:\n{assistant_message}")
             cleaned_text, image_ids = extract_images_and_clean_text(assistant_message)
             logger.info(f"Found image IDs: {image_ids}")
             logger.info(f"Cleaned text:\n{cleaned_text}")
             
-            # Сохраняем очищенный текст, если это не служебное сообщение
-            if not any(pattern in cleaned_text.lower() for pattern in [
-                "у вас уже есть активная новелла",
-                "пожалуйста, нажмите кнопку",
-                "произошла ошибка",
-                "история завершена",
-                "спасибо за подписку"
-            ]):
-                await self.save_message(novel_state, cleaned_text)
+            # Сохраняем ответ ассистента
+            await self.save_message(novel_state, cleaned_text)
+            logger.info("Assistant message saved to database")
             
             # Отправляем ответ пользователю
             await send_assistant_response(message, assistant_message)
+            logger.info("Response sent to user")
 
         except Exception as e:
-            # Проверяем тип ошибки по строковому представлению
-            if "unsupported_country_region_territory" in str(e):
-                await message.answer(
-                    "К сожалению, сервис временно недоступен в вашем регионе. "
-                    "Мы работаем над решением этой проблемы."
-                )
-                logger.error(f"OpenAI region restriction error: {e}")
-                return
-            
             logger.error(f"Error processing message: {e}", exc_info=True)
             await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте ещё раз.")
 

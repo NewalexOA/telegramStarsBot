@@ -2,7 +2,7 @@ from aiogram import Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from handlers import admin_actions, personal_actions
+from handlers import admin_actions, novel
 from middlewares.check_subscription import CheckSubscriptionMiddleware
 from middlewares.localization import L10nMiddleware
 from middlewares.db import DatabaseMiddleware
@@ -15,36 +15,35 @@ def get_dispatcher() -> Dispatcher:
     # Создаем диспетчер
     dp = Dispatcher(storage=MemoryStorage())
     
-    # Создаем engine и session_maker для БД
+    # Создаем движок базы данных
     engine = create_async_engine(
         "sqlite+aiosqlite:///bot.db",
         echo=False
     )
+    
+    # Создаем фабрику сессий
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
     
-    # Получаем локализацию
-    l10n = get_fluent_localization()
-    
-    # Создаем middleware для локализации
-    i18n_middleware = L10nMiddleware(l10n)
-    
-    # Регистрируем базовые мидлвари
+    # Регистрируем мидлвари
     dp.message.middleware(DatabaseMiddleware(session_maker))
     dp.callback_query.middleware(DatabaseMiddleware(session_maker))
     
-    # Добавляем локализацию
+    # Регистрируем локализацию
+    i18n_middleware = L10nMiddleware(get_fluent_localization())
     dp.message.outer_middleware(i18n_middleware)
     dp.callback_query.outer_middleware(i18n_middleware)
     dp.pre_checkout_query.outer_middleware(i18n_middleware)
     
-    # Сначала регистрируем админские обработчики
+    # Регистрируем обработчики в правильном порядке:
+    
+    # 1. Сначала регистрируем обработчик текстовых сообщений
+    dp.include_router(novel.router)
+    
+    # 2. Затем админские обработчики
     dp.include_router(admin_actions.router)
     
-    # Затем добавляем проверку подписки для обычных пользователей
+    # 3. В конце добавляем проверку подписки
     dp.message.middleware(CheckSubscriptionMiddleware())
     dp.callback_query.middleware(CheckSubscriptionMiddleware())
-    
-    # И в конце регистрируем обычные обработчики
-    dp.include_router(personal_actions.router)
     
     return dp
