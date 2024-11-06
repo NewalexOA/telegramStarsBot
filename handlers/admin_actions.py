@@ -1,7 +1,9 @@
+import os
 import structlog
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -87,3 +89,45 @@ async def show_stats(message: Message, session: AsyncSession):
     except Exception as e:
         logger.error(f"Error showing stats: {e}")
         await message.answer("Произошла ошибка при получении статистики")
+
+@router.message(F.text == "🗑 Очистить базу")
+async def cmd_clear_db(message: Message, l10n):
+    """Команда для очистки базы данных"""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Да", callback_data="clear_db_confirm")
+    kb.button(text="❌ Нет", callback_data="clear_db_cancel")
+    kb.adjust(2)
+    
+    await message.answer(
+        l10n.format_value("clear-db-confirm"),
+        reply_markup=kb.as_markup()
+    )
+
+@router.callback_query(F.data == "clear_db_confirm")
+async def clear_db_confirm(callback: CallbackQuery, l10n):
+    """Подтверждение очистки базы"""
+    try:
+        # Закрываем соединение с базой
+        await callback.message.bot.session_pool.close()
+        
+        # Удаляем файл базы данных
+        if os.path.exists("bot.db"):
+            os.remove("bot.db")
+            
+        await callback.message.edit_text(
+            l10n.format_value("clear-db-success")
+        )
+        
+        # Перезапускаем бота
+        os._exit(0)
+        
+    except Exception as e:
+        logger.error(f"Error clearing database: {e}")
+        await callback.message.edit_text(
+            l10n.format_value("clear-db-error", {"error": str(e)})
+        )
+
+@router.callback_query(F.data == "clear_db_cancel")
+async def clear_db_cancel(callback: CallbackQuery):
+    """Отмена очистки базы"""
+    await callback.message.delete()
