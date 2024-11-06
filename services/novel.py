@@ -25,16 +25,63 @@ class NovelService:
         )
         return result.scalar_one_or_none()
 
-    async def create_novel_state(self, user_id: int) -> NovelState:
-        """Создание нового состояния новеллы"""
-        thread = await openai_client.beta.threads.create()
-        novel_state = NovelState(
-            user_id=user_id,
-            thread_id=thread.id
-        )
-        self.session.add(novel_state)
-        await self.session.commit()
-        return novel_state
+    async def create_novel_state(self, user_id: int) -> NovelState | None:
+        """Создает новое состояние новеллы"""
+        try:
+            # Сначала получаем старое состояние
+            old_state = await self.get_novel_state(user_id)
+            
+            # Если есть старое состояние и требуется оплата - запрещаем создание нового
+            if old_state and old_state.needs_payment:
+                logger.info(f"Blocked novel creation - payment required for user {user_id}")
+                return None
+                
+            # Если есть старое состояние без требования оплаты - удаляем его
+            if old_state:
+                # Сначала удаляем тред в OpenAI
+                try:
+                    if old_state.thread_id:
+                        await openai_client.beta.threads.delete(thread_id=old_state.thread_id)
+                except Exception as e:
+                    logger.error(f"Error deleting thread: {e}")
+                    # Продолжаем выполнение даже при ошибке удаления
+                    
+                # Затем удаляем запись из БД
+                await self.session.delete(old_state)
+                await self.session.commit()
+            
+            # Создаем новый тред в OpenAI с повторными попытками
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    thread = await openai_client.beta.threads.create()
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        logger.error(f"Failed to create thread after {max_retries} attempts: {e}")
+                        raise
+                    logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                    await asyncio.sleep(1)
+            
+            # Создаем новое состояние
+            novel_state = NovelState(
+                user_id=user_id,
+                thread_id=thread.id,
+                current_scene=0,
+                is_completed=False,
+                needs_payment=False
+            )
+            
+            self.session.add(novel_state)
+            await self.session.commit()
+            await self.session.refresh(novel_state)
+            
+            return novel_state
+            
+        except Exception as e:
+            logger.error(f"Error creating novel state: {e}")
+            await self.session.rollback()
+            raise
 
     async def save_message(self, novel_state: NovelState, content: str, is_user: bool = False) -> NovelMessage:
         """Сохранение сообщения в базу"""
@@ -64,6 +111,18 @@ class NovelService:
     async def process_message(self, message: Message, novel_state: NovelState, initial_message: bool = False) -> None:
         """Обработка сообщения пользователя"""
         try:
+            # Проверяем существование треда перед использованием
+            try:
+                thread = await openai_client.beta.threads.retrieve(thread_id=novel_state.thread_id)
+                if not thread:
+                    raise Exception("Thread not found")
+            except Exception as e:
+                logger.error(f"Thread validation failed: {e}")
+                # Создаем новый тред если старый не найден
+                thread = await openai_client.beta.threads.create()
+                novel_state.thread_id = thread.id
+                await self.session.commit()
+
             if not initial_message:
                 # Проверяем, не является ли сообщение командой или служебным текстом
                 text = message.text
@@ -81,7 +140,7 @@ class NovelService:
                     await self.end_story(novel_state, message)
                     return
                 
-                # Сохраняем сообщение пользователя
+                # Сохраняем сообщение ползователя
                 await self.save_message(novel_state, text, is_user=True)
                 
                 # Добавляем сообщение пользователя в тред
@@ -99,7 +158,7 @@ class NovelService:
                         role="user",
                         content=f"""Теперь представь персонажей, строго следуя формату из сценария, и только после этого начни первую сцену. 
                         
-                        ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{text}". История должна быть полностью персонализирована под это имя.
+                        ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{text}". История должна быть полностью перонализирована под это имя.
                         
                         Каждый персонаж должен быть представлен с фотографией на отдельной строке в формате [AI отправляет фото: ![название](ссылка)]"""
                     )
@@ -171,14 +230,23 @@ class NovelService:
             await send_assistant_response(message, assistant_message)
 
         except Exception as e:
+            # Проверяем тип ошибки по строковому представлению
+            if "unsupported_country_region_territory" in str(e):
+                await message.answer(
+                    "К сожалению, сервис временно недоступен в вашем регионе. "
+                    "Мы работаем над решением этой проблемы."
+                )
+                logger.error(f"OpenAI region restriction error: {e}")
+                return
+            
             logger.error(f"Error processing message: {e}", exc_info=True)
             await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте ещё раз.")
 
     async def end_story(self, novel_state: NovelState, message: Message, silent: bool = False) -> None:
         """Завершает новеллу и очищает данные"""
         try:
-            # Увеличиваем счетчик завершений
-            novel_state.completions_count += 1
+            # Устанавливаем флаг необходимости оплаты
+            novel_state.needs_payment = True
             novel_state.is_completed = True
             await self.session.commit()
             
