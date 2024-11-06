@@ -48,7 +48,7 @@ async def cmd_end_novel(message: Message, session: AsyncSession, l10n):
         await message.answer("У вас нет активной новеллы")
 
 @router.message(F.text == "📊 Статистика")
-async def show_stats(message: Message, session: AsyncSession):
+async def menu_stats(message: Message, session: AsyncSession):
     """Показывает статистику реферальной программы"""
     try:
         # Получаем общее количество рефералов
@@ -131,3 +131,31 @@ async def clear_db_confirm(callback: CallbackQuery, l10n):
 async def clear_db_cancel(callback: CallbackQuery):
     """Отмена очистки базы"""
     await callback.message.delete()
+
+@router.message(F.text == "🔧 Админ-панель")
+async def menu_admin_panel(message: Message):
+    """Обработчик кнопки Админ-панель"""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Управление пользователями", callback_data="admin_users")
+    kb.button(text="Управление контентом", callback_data="admin_content")
+    kb.adjust(1)
+    
+    await message.answer(
+        "Панель администратора\n\n"
+        "Выберите раздел:",
+        reply_markup=kb.as_markup()
+    )
+
+@router.message(F.text == "⚙️ Настройки")
+async def menu_settings(message: Message):
+    """Обработчик кнопки Настройки"""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Настройки бота", callback_data="settings_bot")
+    kb.button(text="Настройки новеллы", callback_data="settings_novel")
+    kb.adjust(1)
+    
+    await message.answer(
+        "Настройки\n\n"
+        "Выберите категорию:",
+        reply_markup=kb.as_markup()
+    )
