@@ -11,7 +11,7 @@ class NovelState(Base):
     thread_id = Column(String(255), nullable=False)
     current_scene = Column(Integer, default=0)
     is_completed = Column(Boolean, default=False)  # Флаг завершения новеллы
-    completions_count = Column(Integer, default=0)  # Счетчик завершений
+    needs_payment = Column(Boolean, default=False)  # Флаг необходимости оплаты
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
