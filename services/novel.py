@@ -118,74 +118,69 @@ class NovelService:
     async def process_message(self, message: Message, novel_state: NovelState, initial_message: bool = False) -> None:
         """Обработка сообщения пользователя"""
         try:
-            # Проверяем существование треда перед использованием
+            # Проверяем существование треда
             try:
-                thread = await openai_client.beta.threads.retrieve(thread_id=novel_state.thread_id)
-                if not thread:
-                    raise Exception("Thread not found")
+                thread = await openai_client.beta.threads.retrieve(novel_state.thread_id)
+                logger.info(
+                    "Retrieved thread",
+                    thread_id=thread.id,
+                    user_id=message.from_user.id
+                )
             except Exception as e:
-                logger.error(f"Thread validation failed: {e}")
+                logger.error(
+                    "Error retrieving thread, creating new one",
+                    error=str(e),
+                    thread_id=novel_state.thread_id,
+                    user_id=message.from_user.id
+                )
+                # Создаем новый тред если старый не существует
                 thread = await openai_client.beta.threads.create()
                 novel_state.thread_id = thread.id
                 await self.session.commit()
-                logger.info(f"Created new thread: {thread.id}")
-
-            text = message.text
-            logger.info(f"Processing message: {text}")
-
+                
+            # Отправляем сообщение в тред
             if initial_message:
-                # Для первого сообщения отправляем специальный промпт
-                await openai_client.beta.threads.messages.create(
-                    thread_id=novel_state.thread_id,
-                    role="user",
-                    content="Начни с шага '0. Инициализация:' и спроси моё имя."
-                )
-                logger.info("Sent initial prompt")
+                content = "Начни с шага '0. Инициализация:' и спроси моё имя."
             else:
-                # Сохраняем сообщение пользователя
-                await self.save_message(novel_state, text, is_user=True)
-                logger.info("User message saved")
+                content = message.text
                 
-                # Проверяем количество сообщений в треде
-                messages = await openai_client.beta.threads.messages.list(
-                    thread_id=novel_state.thread_id
+            try:
+                await openai_client.beta.threads.messages.create(
+                    thread_id=thread.id,
+                    content=content,
+                    role="user"
                 )
+                logger.info(
+                    "Message sent to thread",
+                    thread_id=thread.id,
+                    user_id=message.from_user.id
+                )
+            except Exception as e:
+                logger.error(
+                    "Error sending message to thread",
+                    error=str(e),
+                    thread_id=thread.id,
+                    user_id=message.from_user.id
+                )
+                raise
                 
-                if len(messages.data) == 2:  # Первый вопрос и первый ответ (имя)
-                    logger.info("Processing name response")
-                    character_prompt = f"""Теперь представь персонажей, строго следуя формату из сценария, и только после этого начни первую сцену. 
-                    
-                    ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{text}". История должна быть полностью персонализирована под это имя.
-                    
-                    Каждый персонаж должен быть представлен с фотографией на отдельной строке в формате [AI отправляет фото: ![название](ссылка)]"""
-                    
-                    await openai_client.beta.threads.messages.create(
-                        thread_id=novel_state.thread_id,
-                        role="user",
-                        content=character_prompt
-                    )
-                    logger.info("Sent character introduction prompt")
-                else:
-                    # Обычное сообщение
-                    await openai_client.beta.threads.messages.create(
-                        thread_id=novel_state.thread_id,
-                        role="user",
-                        content=text
-                    )
-                    logger.info("Sent regular message")
-
-            # Запускаем ассистента
+            # Запускаем обработку
             run = await openai_client.beta.threads.runs.create(
-                thread_id=novel_state.thread_id,
+                thread_id=thread.id,
                 assistant_id=bot_config.assistant_id
             )
-            logger.info(f"Started run {run.id}")
-
+            logger.info(
+                "Started run",
+                run_id=run.id,
+                thread_id=thread.id,
+                user_id=message.from_user.id
+            )
+            
             # Ожидаем завершения
             start_time = time.time()
             while True:
                 run = await openai_client.beta.threads.runs.retrieve(
-                    thread_id=novel_state.thread_id,
+                    thread_id=thread.id,
                     run_id=run.id
                 )
                 if run.status == "completed":
@@ -201,7 +196,7 @@ class NovelService:
 
             # Получаем и обрабатываем ответ ассистента
             messages = await openai_client.beta.threads.messages.list(
-                thread_id=novel_state.thread_id
+                thread_id=thread.id
             )
             assistant_message = messages.data[0].content[0].text.value
             
@@ -219,8 +214,20 @@ class NovelService:
             logger.info("Response sent to user")
 
         except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
-            await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте ещё раз.")
+            logger.error(
+                "Error processing message",
+                error=str(e),
+                user_id=message.from_user.id,
+                thread_id=novel_state.thread_id if novel_state else None,
+                exc_info=True
+            )
+            # Сбрасываем состояние при критической ошибке
+            novel_state.needs_payment = True
+            novel_state.is_completed = True
+            await self.session.commit()
+            await message.answer(
+                "Произошла ошибка при обработке сообщения. Пожалуйста, начните новую новеллу."
+            )
 
     async def end_story(self, novel_state: NovelState, message: Message, silent: bool = False) -> None:
         """Завершает новеллу и очищает данные"""

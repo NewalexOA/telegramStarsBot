@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      clear_db:
+        description: 'Clear database before deploy'
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -26,6 +33,11 @@ jobs:
       run: |
         scp -o StrictHostKeyChecking=no -r * root@185.239.48.81:/home/root/telegramStarsBot
 
+    - name: Clear database if requested
+      if: ${{ inputs.clear_db }}
+      run: |
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && source venv/bin/activate && python3 -c 'from utils.db import clear_db; import asyncio; asyncio.run(clear_db())'"
+        
     - name: Set up virtual environment and install dependencies
       run: |
         ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
