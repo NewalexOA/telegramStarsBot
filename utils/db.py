@@ -1,19 +1,19 @@
 from sqlalchemy.ext.asyncio import create_async_engine
 from models.base import Base
+from models.novel import NovelState, NovelMessage
+from models.referral import ReferralLink, Referral, PendingReferral, ReferralReward
 import structlog
 
 async def create_db():
     """Create database tables"""
     logger = structlog.get_logger()
     
-    # Создаем движок для SQLite с отключенным эхо
     engine = create_async_engine(
         "sqlite+aiosqlite:///bot.db",
-        echo=False  # Отключаем встроенное логирование SQLAlchemy
+        echo=False
     )
     
     try:
-        # Создаем все таблицы
         async with engine.begin() as conn:
             await logger.ainfo("Creating database tables")
             await conn.run_sync(Base.metadata.create_all)
