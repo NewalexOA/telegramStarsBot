@@ -39,6 +39,10 @@ jobs:
         ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && echo 'BOT_OPENAI_API_KEY=${{ secrets.BOT_OPENAI_API_KEY }}' >> .env"
         ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && echo 'BOT_ASSISTANT_ID=${{ secrets.BOT_ASSISTANT_ID }}' >> .env"
 
+    - name: Initialize database
+      run: |
+        ssh -o StrictHostKeyChecking=no root@185.239.48.81 "cd /home/root/telegramStarsBot && source venv/bin/activate && python3 -c 'from utils.db import create_db; import asyncio; asyncio.run(create_db())'"
+
     - name: Restart bot service
       run: |
         ssh -o StrictHostKeyChecking=no root@185.239.48.81 "sudo systemctl restart telegram_bot"
