@@ -1,22 +1,21 @@
-import structlog
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.types import Message
+from logs import get_logger
+from filters.chat_type import ChatTypeFilter
 
+logger = get_logger()
 
-# Declare router
 router = Router()
-router.message.filter(F.chat.type == "group") # process group events only
+router.message.filter(ChatTypeFilter(["group", "supergroup"]))
 
-# Declare logger
-logger = structlog.get_logger()
-
-# Declare handlers
-@router.message(F.content_type.in_({'new_chat_members', 'left_chat_member'}))
-async def on_user_join_or_left(message: Message):
+@router.message()
+async def handle_group_message(message: Message):
     """
-    Removes "user joined" and "user left" messages.
-    By the way, bots do not receive left_chat_member updates when the group has more than 50 members (otherwise use https://core.telegram.org/bots/api#chatmemberupdated)
-    :param message: Service message "User joined group
+    Обработчик сообщений в группах
     """
-
-    await message.delete()
+    logger.info(
+        "Processing group message",
+        user_id=message.from_user.id,
+        chat_id=message.chat.id,
+        event="group_message"
+    )

@@ -2,7 +2,7 @@ from aiogram import Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from handlers import admin_actions, novel
+from handlers import admin_actions, novel, group_events, personal_actions, referral
 from middlewares.check_subscription import CheckSubscriptionMiddleware
 from middlewares.localization import L10nMiddleware
 from middlewares.db import DatabaseMiddleware
@@ -34,16 +34,17 @@ def get_dispatcher() -> Dispatcher:
     dp.callback_query.outer_middleware(i18n_middleware)
     dp.pre_checkout_query.outer_middleware(i18n_middleware)
     
-    # Регистрируем обработчики в правильном порядке:
-    
-    # 1. Сначала регистрируем обработчик текстовых сообщений
-    dp.include_router(novel.router)
-    
-    # 2. Затем админские обработчики
-    dp.include_router(admin_actions.router)
-    
-    # 3. В конце добавляем проверку подписки
+    # Регистрируем middleware
     dp.message.middleware(CheckSubscriptionMiddleware())
     dp.callback_query.middleware(CheckSubscriptionMiddleware())
+    
+    # Регистрируем роутеры
+    dp.include_routers(
+        admin_actions.router,
+        group_events.router,
+        personal_actions.router,
+        referral.router,
+        novel.router
+    )
     
     return dp

@@ -9,10 +9,11 @@ import time
 from models.novel import NovelState, NovelMessage
 from utils.openai_helper import openai_client, send_assistant_response
 from utils.text_utils import extract_images_and_clean_text
-from keyboards.menu import get_main_menu
+from keyboards.factory import KeyboardFactory
 
 logger = structlog.get_logger()
 bot_config = get_config(BotConfig, "bot")
+keyboard_factory = KeyboardFactory()
 
 # В начале файла
 SKIP_COMMANDS = {
@@ -244,12 +245,61 @@ class NovelService:
                 logger.error(f"Error deleting thread: {e}")
             
             if not silent:
+                # Используем фабрику для создания клавиатуры
+                keyboard = keyboard_factory.create_keyboard(
+                    keyboard_type="reply",
+                    is_subscribed=True,
+                    has_active_novel=False
+                )
                 await message.answer(
                     "История завершена! Чтобы начать новую, нажмите '🎮 Новелла'",
-                    reply_markup=get_main_menu(has_active_novel=False)
+                    reply_markup=keyboard
                 )
                 
         except Exception as e:
             logger.error(f"Error ending story: {e}")
             if not silent:
                 await message.answer("Произошла ошибка при завершении истории")
+
+    async def get_stats(self) -> dict:
+        """
+        Получает статистику по новеллам
+        """
+        logger.info("Getting novel statistics")
+        try:
+            # Получаем общее количество новелл
+            total_novels_query = select(NovelState)
+            total_novels = len((await self.session.execute(total_novels_query)).all())
+
+            # Получаем количество завершенных новелл
+            completed_novels_query = select(NovelState).where(NovelState.is_completed is True)
+            completed_novels = len((await self.session.execute(completed_novels_query)).all())
+
+            # Получаем количество активных (незавершенных) новелл
+            active_novels_query = select(NovelState).where(NovelState.is_completed is False)
+            active_novels = len((await self.session.execute(active_novels_query)).all())
+
+            # Получаем общее количество сообщений
+            total_messages_query = select(NovelMessage)
+            total_messages = len((await self.session.execute(total_messages_query)).all())
+
+            logger.info(
+                "Stats retrieved successfully",
+                total_novels=total_novels,
+                completed_novels=completed_novels,
+                active_novels=active_novels,
+                total_messages=total_messages
+            )
+
+            return {
+                "total_novels": total_novels,
+                "completed_novels": completed_novels,
+                "active_novels": active_novels,
+                "total_messages": total_messages
+            }
+        except Exception as e:
+            logger.error(
+                "Error getting stats",
+                error=str(e)
+            )
+            raise

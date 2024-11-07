@@ -1,3 +1,4 @@
+from functools import lru_cache
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Type, Union
@@ -50,13 +51,48 @@ class LogConfig(BaseModel):
     renderer: LogRenderer
     use_colors_in_console: bool
 
+@lru_cache()
 def get_config(config_type: Type[Union[BotConfig, LogConfig]], root_key: str | None = None) -> Any:
     """Get configuration instance"""
-    # Для BotConfig используем .env
+    logger.info(f"Loading configuration for {config_type.__name__}")
+    
+    # Для BotConfig используем комбинацию config.toml и .env
     if config_type == BotConfig:
-        return BotConfig()
-        
-    # Для LogConfig используем config.toml
+        try:
+            # Сначала пытаемся загрузить config.toml
+            config_path = Path(__file__).parent / "config.toml"
+            toml_config = {}
+            
+            if config_path.exists():
+                with open(config_path, "rb") as f:
+                    raw_config = tomli.load(f)
+                    if "bot" in raw_config:
+                        toml_config = raw_config["bot"]
+                        logger.info("Loaded bot config from TOML")
+            
+            # Создаем конфигурацию из .env
+            env_config = BotConfig()
+            
+            # Для каждого поля проверяем наличие значения в TOML
+            for field_name in BotConfig.model_fields.keys():
+                toml_value = toml_config.get(field_name)
+                env_value = getattr(env_config, field_name)
+                
+                if toml_value:  # Если есть значение в TOML
+                    setattr(env_config, field_name, toml_value)
+                    logger.info(f"{field_name}: using value from TOML")
+                elif env_value:  # Если нет в TOML, но есть в .env
+                    logger.info(f"{field_name}: using value from .env")
+                else:
+                    logger.warning(f"{field_name}: no value found in TOML or .env")
+            
+            return env_config
+            
+        except Exception as e:
+            logger.error("Failed to load bot config", error=str(e))
+            raise
+    
+    # Для LogConfig используем только config.toml
     if config_type == LogConfig:
         try:
             config_path = Path(__file__).parent / "config.toml"

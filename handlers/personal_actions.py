@@ -8,16 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fluent.runtime import FluentLocalization
 from filters.is_subscribed import IsSubscribedFilter
-from keyboards.subscription import get_subscription_keyboard
 from filters.chat_type import ChatTypeFilter
 from filters.referral import RegularStartCommandFilter
-from middlewares.check_subscription import check_subscription
-from keyboards.menu import get_main_menu
-from services.novel import NovelService
-from handlers.novel import start_novel_common  # Добавляем в начало файла
+from keyboards.factory import KeyboardFactory
 from filters.is_admin import IsAdminFilter
 from filters.is_owner import IsOwnerFilter
-from utils.referral import get_user_ref_link, create_ref_link  # Добавляем импорт
+from utils.referral import get_user_ref_link, create_ref_link
+from services.novel import NovelService
+from models.novel import NovelState
 
 logger = structlog.get_logger()
 
@@ -28,72 +26,88 @@ router.message.filter(ChatTypeFilter(["private"]))
 # В начале файла добавим константу
 RESTART_COST = 10  # Стоимость рестарта новеллы в Stars
 
+# Создаем экземпляр фабрики
+keyboard_factory = KeyboardFactory()
+
 @router.message(Command("start"), RegularStartCommandFilter())
 async def cmd_start(message: Message, session: AsyncSession, l10n):
     """
-    Этот хэндлер будет вызван только для обычной команды /start без реферального кода
+    Обработчик команды /start
     """
-    # Проверяем, является ли пользователь админом или владельцем
     is_admin = await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message)
+    is_subscribed = await IsSubscribedFilter()(message)
     
     novel_service = NovelService(session)
     novel_state = await novel_service.get_novel_state(message.from_user.id)
     
-    # Проверяем, завершил ли пользователь новеллу ранее
-    if novel_state and novel_state.is_completed and not is_admin:  # Добавляем проверку not is_admin
-        # Отправляем счет на оплату рестарта только обычным пользователям
-        await send_restart_invoice(message, l10n)
-        return
-    
-    if is_admin:
-        await message.answer(
-            l10n.format_value("hello-msg"),
-            reply_markup=get_main_menu(has_active_novel=bool(novel_state), is_admin=True),
-            parse_mode="HTML"
-        )
-        return
-    
-    # Для обычных пользователей проверяем статус подписки
-    is_subscribed = await IsSubscribedFilter()(message)
-    
-    # Выбираем нужную клавиатуру
-    reply_markup = get_main_menu(has_active_novel=bool(novel_state)) if is_subscribed else await get_subscription_keyboard(message, is_subscribed=False)
+    # Создаем клавиатуру через фабрику
+    keyboard = keyboard_factory.create_keyboard(
+        keyboard_type="inline" if not is_subscribed else "reply",
+        is_admin=is_admin,
+        is_subscribed=is_subscribed,
+        has_active_novel=bool(novel_state),
+        input_field_placeholder="Выберите действие"
+    )
     
     await message.answer(
-        l10n.format_value("hello-msg"),
-        reply_markup=reply_markup,
-        parse_mode="HTML"
+        l10n.format_value("start-no-subscription" if not is_subscribed else "start-subscribed"),
+        reply_markup=keyboard
     )
 
 @router.message(F.text == "🎮 Новелла")
 async def menu_novel(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопки Новелла"""
-    # Проверяем, является ли пользователь админом или владельцем
-    is_admin = await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message)
-    
-    if is_admin:
-        await start_novel_common(message, session, l10n)
-        return
+    try:
+        # Проверяем, является ли пользователь админом или владельцем
+        is_admin = await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message)
         
-    # Для обычных пользователей проверяем подписку
-    if not await IsSubscribedFilter()(message):
+        # Создаем экземпляр сервиса
+        novel_service = NovelService(session)
+        
+        if is_admin:
+            # Создаем новое состояние и начинаем новеллу
+            novel_state = NovelState(user_id=message.from_user.id)
+            session.add(novel_state)
+            await session.commit()
+            await novel_service.process_message(message, novel_state, initial_message=True)
+            return
+            
+        # Для обычных пользователей проверяем подписку
+        if not await IsSubscribedFilter()(message):
+            await message.answer(
+                l10n.format_value("subscription-required"),
+                reply_markup=keyboard_factory.create_keyboard(
+                    keyboard_type="inline",
+                    is_subscribed=False
+                ),
+                parse_mode="HTML"
+            )
+            return
+        
+        novel_state = await novel_service.get_novel_state(message.from_user.id)
+        
+        # Проверяем, завершил ли пользователь новеллу ранее
+        if novel_state and novel_state.is_completed:
+            # Отправляем счет на оплату рестарта
+            await send_restart_invoice(message, l10n)
+            return
+        
+        await novel_service.start_new_novel(message.from_user.id)
         await message.answer(
-            l10n.format_value("subscription-required"),
-            reply_markup=await get_subscription_keyboard(message),
+            l10n.format_value("novel-start"),
             parse_mode="HTML"
         )
-        return
-    
-    novel_service = NovelService(session)
-    novel_state = await novel_service.get_novel_state(message.from_user.id)
-    
-    # Проверяем, завершил ли пользователь новеллу ранее
-    if novel_state and novel_state.is_completed:
-        # Отправляем счет на оплату рестарта
-        await send_restart_invoice(message, l10n)
-        return
-    
-    await start_novel_common(message, session, l10n)
+        
+    except Exception as e:
+        logger.error(
+            "Error in menu_novel",
+            error=str(e),
+            user_id=message.from_user.id,
+            event="novel_menu_error"
+        )
+        await message.answer(
+            "Произошла ошибка при обработке команды. Пожалуйста, попробуйте позже."
+        )
 
 @router.message(F.text == "💝 Донат")
 async def menu_donate(message: Message, l10n):
@@ -106,17 +120,15 @@ async def menu_donate(message: Message, l10n):
 @router.message(F.text == "🔄 Рестарт")
 async def menu_restart(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопки Рестарт"""
-    # Проверяем, является ли пользователь админом или владельцем
-    is_admin = await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message)
-    
-    if is_admin:
-        await start_novel_common(message, session, l10n)
-        return
-        
+    # Проверяем подписку
     if not await IsSubscribedFilter()(message):
+        keyboard = keyboard_factory.create_keyboard(
+            keyboard_type="inline",
+            is_subscribed=False
+        )
         await message.answer(
             l10n.format_value("subscription-required"),
-            reply_markup=await get_subscription_keyboard(message),
+            reply_markup=keyboard,
             parse_mode="HTML"
         )
         return
@@ -179,40 +191,47 @@ async def cmd_help(message: Message, l10n):
 
 @router.message(Command("language"))
 async def cmd_language(message: Message, l10n):
-    """
-    Этот хэндлер будет вызван, когда пользователь отправит команду /language
-    """
+    """Обработчик команды /language"""
+    keyboard = keyboard_factory.create_keyboard(
+        keyboard_type="inline",
+        is_subscribed=False
+    )
     await message.answer(
         l10n.format_value("language"),
-        reply_markup=await get_subscription_keyboard(message),
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
 
 @router.callback_query(F.data == "check_subscription")
-@check_subscription
 async def check_subscription_callback(callback: CallbackQuery, session: AsyncSession, l10n):
     """
-    Этот хэндлер будет выван, когда пользователь нажмет на кнопку проверки подписки
+    Этот хэндлер будет вызван, когда пользователь нажмет на кнопку проверки подписки
     """
-    if await IsSubscribedFilter()(callback.message):
-        await callback.message.delete()
-        
-        # Поверяем наличие активной новеллы
-        novel_service = NovelService(session)
-        novel_state = await novel_service.get_novel_state(callback.from_user.id)
-        
-        # Создаем еню в зависимости от наличия активной новеллы
-        menu = get_main_menu(has_active_novel=bool(novel_state))
-        
-        await callback.message.answer(
-            l10n.format_value("subscription-confirmed"),
-            reply_markup=menu
-        )
-    else:
+    # Проверяем подписку напрямую через фильтр
+    if not await IsSubscribedFilter()(callback.message):
         await callback.answer(
             l10n.format_value("subscription-check-failed"),
             show_alert=True
         )
+        return
+
+    await callback.message.delete()
+    
+    # Проверяем наличие активной новеллы
+    novel_service = NovelService(session)
+    novel_state = await novel_service.get_novel_state(callback.from_user.id)
+    
+    # Создаем меню в зависимости от наличия активной новеллы
+    keyboard = keyboard_factory.create_keyboard(
+        keyboard_type="reply",
+        is_subscribed=True,
+        has_active_novel=bool(novel_state)
+    )
+    
+    await callback.message.answer(
+        l10n.format_value("subscription-confirmed"),
+        reply_markup=keyboard
+    )
 
 @router.callback_query(F.data == "show_donate")
 async def show_donate_info(callback: CallbackQuery, l10n):
@@ -225,7 +244,7 @@ async def show_donate_info(callback: CallbackQuery, l10n):
 
 @router.callback_query(F.data == "donate_cancel")
 async def on_donate_cancel(callback: CallbackQuery, l10n: FluentLocalization):
-    """Обработчик отмены доната"""
+    """Обрабтик отмены доната"""
     await callback.answer(l10n.format_value("donate-cancel-payment"))
     await callback.message.delete()
 
@@ -279,7 +298,11 @@ async def on_successful_payment(message: Message, session: AsyncSession, l10n: F
             await session.commit()
         
         # Запускаем новеллу заново
-        await start_novel_common(message, session, l10n)
+        await novel_service.start_new_novel(message.from_user.id)
+        await message.answer(
+            l10n.format_value("novel-start"),
+            parse_mode="HTML"
+        )
     else:
         # Обычный донат
         await message.answer(
@@ -295,9 +318,13 @@ async def on_successful_payment(message: Message, session: AsyncSession, l10n: F
 async def menu_continue(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопки Продолжить"""
     if not await IsSubscribedFilter()(message):
+        keyboard = keyboard_factory.create_keyboard(
+            keyboard_type="inline",
+            is_subscribed=False
+        )
         await message.answer(
             l10n.format_value("subscription-required"),
-            reply_markup=await get_subscription_keyboard(message),
+            reply_markup=keyboard,
             parse_mode="HTML"
         )
         return
@@ -319,7 +346,7 @@ async def menu_continue(message: Message, session: AsyncSession, l10n):
             
     except Exception as e:
         logger.error(f"Error in menu_continue: {e}")
-        await message.answer("Произошла ошибка. Пожалуйста, попробуйте ещё раз.")
+        await message.answer("Произошла ошибка. Пожалуйста, попрбуйте ещё раз.")
 
 async def send_restart_invoice(message: Message, l10n: FluentLocalization):
     """Отправляет счет на оплату рестарта новеллы"""
@@ -355,17 +382,20 @@ async def on_restart_cancel(callback: CallbackQuery, l10n: FluentLocalization):
 @router.message(F.text == "🔗 Реферальная ссылка")
 async def menu_ref_link(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопки Реферальная ссылка"""
-    # Проверяем подписку
     if not await IsSubscribedFilter()(message):
+        keyboard = keyboard_factory.create_keyboard(
+            keyboard_type="inline",
+            is_subscribed=False
+        )
         await message.answer(
             l10n.format_value("subscription-required"),
-            reply_markup=await get_subscription_keyboard(message),
+            reply_markup=keyboard,
             parse_mode="HTML"
         )
         return
         
     try:
-        # Получаем существующую ссылку или создаем новую
+        # Получаем существущую ссылку или создаем новую
         ref_link = await get_user_ref_link(session, message.from_user.id)
         if not ref_link:
             ref_link = await create_ref_link(session, message.from_user.id)
