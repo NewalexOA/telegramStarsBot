@@ -6,7 +6,9 @@ def extract_images_and_clean_text(text: str) -> Tuple[str, List[str]]:
     image_patterns = [
         r'\[AI отправляет фото:.*?https://drive\.google\.com/file/d/(.*?)/view\?usp=sharing.*?\]',
         r'!\(https://drive\.google\.com/file/d/(.*?)/view\?usp=sharing\)',
-        r'\(https://drive\.google\.com/file/d/(.*?)/view\?usp=sharing\)'
+        r'\(https://drive\.google\.com/file/d/(.*?)/view\?usp=sharing\)',
+        r'\(https://drive\.google\.com/file/d/(.*?)/view\?usp=drive_link\)',
+        r'https://drive\.google\.com/file/d/(.*?)/view\?usp=drive_link'
     ]
     
     brackets_pattern = r'\[.*?\]|\]|\['
@@ -17,7 +19,8 @@ def extract_images_and_clean_text(text: str) -> Tuple[str, List[str]]:
         r'Цель достигнута:.*?\n',
         r'### СЦЕНА.*?\n',
         r'^\d+\.\s+(?=[А-Я])',
-        r'Теперь мы готовы начать!.*?\n'
+        r'Теперь мы готовы начать!.*?\n',
+        r'https://drive\.google\.com/file/d/.*?/view\?usp=drive_link'
     ]
     
     image_ids = set()
