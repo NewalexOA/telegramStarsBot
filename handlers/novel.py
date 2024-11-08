@@ -110,8 +110,8 @@ async def start_novel_common(message: Message, session: AsyncSession, l10n):
 # Команды
 @router.message(
     Command("start"),
-    ~RegularStartCommandFilter(),
     ChatTypeFilter(["private"]),
+    ~RegularStartCommandFilter(),
     flags={"priority": PRIORITIES["COMMAND"]}
 )
 async def cmd_start_ref(message: Message, session: AsyncSession, l10n):
