@@ -1,20 +1,19 @@
+from typing import Optional, List, Tuple
 import asyncio
-import structlog
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from aiogram.types import Message
-from config_reader import get_config, BotConfig
 import time
-
+import structlog
+from aiogram.types import Message
+from unit_of_work.unit_of_work import UnitOfWork
 from models.novel import NovelState, NovelMessage
 from utils.openai_helper import openai_client, send_assistant_response
 from utils.text_utils import extract_images_and_clean_text
 from keyboards.menu import get_main_menu
+from config_reader import get_config, BotConfig
 
 logger = structlog.get_logger()
 bot_config = get_config(BotConfig, "bot")
 
-# В начале файла
+# Константы
 SKIP_COMMANDS = {
     "🎮 Новелла", "📖 Продолжить", "🔄 Рестарт", 
     "💝 Донат", "❓ Помощь", "🔗 Реферальная ссылка",
@@ -22,217 +21,186 @@ SKIP_COMMANDS = {
 }
 
 class NovelService:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def get_novel_state(self, user_id: int) -> NovelState | None:
+    def __init__(self, uow: UnitOfWork):
+        self.uow = uow
+        self.openai_client = openai_client
+        
+    async def get_novel_state(self, user_id: int) -> Optional[NovelState]:
         """Получение состояния новеллы пользователя"""
-        result = await self.session.execute(
-            select(NovelState).where(NovelState.user_id == user_id)
-        )
-        return result.scalar_one_or_none()
-
-    async def create_novel_state(self, user_id: int) -> NovelState | None:
+        async with self.uow as uow:
+            return await uow.novels.get_by_user_id(user_id)
+    
+    async def create_novel_state(self, user_id: int) -> Optional[NovelState]:
         """Создает новое состояние новеллы"""
-        try:
-            # Сначала получаем старое состояние
-            old_state = await self.get_novel_state(user_id)
-            
-            # Если есть старое состояние и требуется оплата - запрещаем создание нового
-            if old_state and old_state.needs_payment:
-                logger.info(f"Blocked novel creation - payment required for user {user_id}")
-                return None
+        async with self.uow as uow:
+            try:
+                # Проверяем старое состояние
+                old_state = await uow.novels.get_by_user_id(user_id)
+                if old_state and old_state.needs_payment:
+                    logger.info(f"Blocked novel creation - payment required for user {user_id}")
+                    return None
                 
-            # Если есть старое состояние без требования оплаты - удаляем его
-            if old_state:
-                # Сначала удаляем тред в OpenAI
-                try:
-                    if old_state.thread_id:
-                        await openai_client.beta.threads.delete(thread_id=old_state.thread_id)
-                except Exception as e:
-                    logger.error(f"Error deleting thread: {e}")
-                    # Продолжаем выполнение даже при ошибке удаления
+                # Удаляем старое состояние если есть
+                if old_state:
+                    try:
+                        if old_state.thread_id:
+                            await self.openai_client.beta.threads.delete(thread_id=old_state.thread_id)
+                    except Exception as e:
+                        logger.error(f"Error deleting thread: {e}")
                     
-                # Затем удаляем запись из БД
-                await self.session.delete(old_state)
-                await self.session.commit()
-            
-            # Создаем новый тред в OpenAI с повторными попытками
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    thread = await openai_client.beta.threads.create()
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        logger.error(f"Failed to create thread after {max_retries} attempts: {e}")
-                        raise
-                    logger.warning(f"Attempt {attempt + 1} failed: {e}")
-                    await asyncio.sleep(1)
-            
-            # Создаем новое состояние
-            novel_state = NovelState(
-                user_id=user_id,
-                thread_id=thread.id,
-                current_scene=0,
-                is_completed=False,
-                needs_payment=False
-            )
-            
-            self.session.add(novel_state)
-            await self.session.commit()
-            await self.session.refresh(novel_state)
-            
-            return novel_state
-            
-        except Exception as e:
-            logger.error(f"Error creating novel state: {e}")
-            await self.session.rollback()
-            raise
-
-    async def save_message(self, novel_state: NovelState, content: str, is_user: bool = False) -> NovelMessage:
-        """Сохранение сообщения в базу"""
-        message = NovelMessage(
-            novel_state_id=novel_state.id,
-            content=content,
-            is_user=is_user
-        )
-        self.session.add(message)
-        await self.session.commit()
-        return message
-
-    async def get_last_assistant_message(self, novel_state: NovelState) -> str | None:
-        """Получение последнего сообщения ассистента"""
-        result = await self.session.execute(
-            select(NovelMessage)
-            .where(
-                NovelMessage.novel_state_id == novel_state.id,
-                ~NovelMessage.is_user
-            )
-            .order_by(NovelMessage.created_at.desc())
-            .limit(1)
-        )
-        message = result.scalar_one_or_none()
-        return message.content if message else None
-
+                    await uow.novels.delete(old_state.id)
+                
+                # Создаем новый тред с повторными попытками
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        thread = await self.openai_client.beta.threads.create()
+                        break
+                    except Exception as e:
+                        if attempt == max_retries - 1:
+                            raise
+                        logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                        await asyncio.sleep(1)
+                
+                # Создаем новое состояние
+                novel_state = await uow.novels.create(
+                    user_id=user_id,
+                    thread_id=thread.id,
+                    current_scene=0,
+                    is_completed=False,
+                    needs_payment=False
+                )
+                await uow.commit()
+                
+                return novel_state
+                
+            except Exception as e:
+                logger.error(f"Error creating novel state: {e}")
+                await uow.rollback()
+                raise
+    
     async def process_message(self, message: Message, novel_state: NovelState, initial_message: bool = False) -> None:
         """Обработка сообщения пользователя"""
         try:
-            # Проверяем существование треда перед использованием
+            # Проверяем существование треда
             try:
-                thread = await openai_client.beta.threads.retrieve(thread_id=novel_state.thread_id)
+                thread = await self.openai_client.beta.threads.retrieve(thread_id=novel_state.thread_id)
                 if not thread:
                     raise Exception("Thread not found")
             except Exception as e:
                 logger.error(f"Thread validation failed: {e}")
-                thread = await openai_client.beta.threads.create()
-                novel_state.thread_id = thread.id
-                await self.session.commit()
+                thread = await self.openai_client.beta.threads.create()
+                async with self.uow as uow:
+                    novel_state.thread_id = thread.id
+                    await uow.commit()
                 logger.info(f"Created new thread: {thread.id}")
 
             text = message.text
             logger.info(f"Processing message: {text}")
 
             if initial_message:
-                # Для первого сообщения отправляем специальный промпт
-                await openai_client.beta.threads.messages.create(
-                    thread_id=novel_state.thread_id,
-                    role="user",
-                    content="Начни с шага '0. Инициализация:' и спроси моё имя."
-                )
-                logger.info("Sent initial prompt")
+                await self._handle_initial_message(novel_state)
             else:
-                # Сохраняем сообщение пользователя
-                await self.save_message(novel_state, text, is_user=True)
-                logger.info("User message saved")
-                
-                # Проверяем количество сообщений в треде
-                messages = await openai_client.beta.threads.messages.list(
-                    thread_id=novel_state.thread_id
-                )
-                
-                if len(messages.data) == 2:  # Первый вопрос и первый ответ (имя)
-                    logger.info("Processing name response")
-                    character_prompt = f"""Теперь представь персонажей, строго следуя формату из сценария, и только после этого начни первую сцену. 
-                    
-                    ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{text}". История должна быть полностью персонализирована под это имя.
-                    
-                    Каждый персонаж должен быть представлен с фотографией на отдельной строке в формате [AI отправляет фото: ![название](ссылка)]"""
-                    
-                    await openai_client.beta.threads.messages.create(
-                        thread_id=novel_state.thread_id,
-                        role="user",
-                        content=character_prompt
-                    )
-                    logger.info("Sent character introduction prompt")
-                else:
-                    # Обычное сообщение
-                    await openai_client.beta.threads.messages.create(
-                        thread_id=novel_state.thread_id,
-                        role="user",
-                        content=text
-                    )
-                    logger.info("Sent regular message")
+                await self._handle_regular_message(message, novel_state, text)
 
-            # Запускаем ассистента
-            run = await openai_client.beta.threads.runs.create(
-                thread_id=novel_state.thread_id,
-                assistant_id=bot_config.assistant_id
-            )
-            logger.info(f"Started run {run.id}")
-
-            # Ожидаем завершения
-            start_time = time.time()
-            while True:
-                run = await openai_client.beta.threads.runs.retrieve(
-                    thread_id=novel_state.thread_id,
-                    run_id=run.id
-                )
-                if run.status == "completed":
-                    break
-                elif run.status == "failed":
-                    raise Exception("Assistant run failed")
-                elif time.time() - start_time > 30:
-                    raise Exception("Assistant run timeout")
-                await asyncio.sleep(1)
-
-            duration = time.time() - start_time
-            logger.info(f"Run completed in {duration:.2f} seconds")
-
-            # Получаем и обрабатываем ответ ассистента
-            messages = await openai_client.beta.threads.messages.list(
-                thread_id=novel_state.thread_id
-            )
-            assistant_message = messages.data[0].content[0].text.value
+            # Получаем и обрабатываем ответ
+            assistant_message = await self._process_assistant_response(novel_state)
             
-            logger.info(f"Raw assistant response:\n{assistant_message}")
-            cleaned_text, image_ids = extract_images_and_clean_text(assistant_message)
-            logger.info(f"Found image IDs: {image_ids}")
-            logger.info(f"Cleaned text:\n{cleaned_text}")
-            
-            # Сохраняем ответ ассистента
-            await self.save_message(novel_state, cleaned_text)
-            logger.info("Assistant message saved to database")
-            
-            # Отправляем ответ пользователю
-            await send_assistant_response(message, assistant_message)
-            logger.info("Response sent to user")
+            # Сохраняем и отправляем ответ
+            await self._save_and_send_response(message, novel_state, assistant_message)
 
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
             await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте ещё раз.")
 
+    async def _handle_initial_message(self, novel_state: NovelState) -> None:
+        """Обработка первого сообщения"""
+        await self.openai_client.beta.threads.messages.create(
+            thread_id=novel_state.thread_id,
+            role="user",
+            content="Начни с шага '0. Инициализация:' и спроси моё имя."
+        )
+        logger.info("Sent initial prompt")
+
+    async def _handle_regular_message(self, message: Message, novel_state: NovelState, text: str) -> None:
+        """Обработка обычного сообщения"""
+        async with self.uow as uow:
+            await self.save_message(novel_state, text, is_user=True)
+            
+            messages = await self.openai_client.beta.threads.messages.list(
+                thread_id=novel_state.thread_id
+            )
+            
+            if len(messages.data) == 2:
+                await self._handle_name_response(novel_state, text)
+            else:
+                await self.openai_client.beta.threads.messages.create(
+                    thread_id=novel_state.thread_id,
+                    role="user",
+                    content=text
+                )
+
+    async def _handle_name_response(self, novel_state: NovelState, name: str) -> None:
+        """Обработка ответа с именем"""
+        character_prompt = f"""Теперь представь персонажей, строго следуя формату из сценария, и только после этого начни первую сцену. 
+        
+        ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{name}". История должна быть полностью персонализирована под это имя.
+        
+        Каждый персонаж должен быть представлен с фотографией на отдельной строке в формате [AI отправляет фото: ![название](ссылка)]"""
+        
+        await self.openai_client.beta.threads.messages.create(
+            thread_id=novel_state.thread_id,
+            role="user",
+            content=character_prompt
+        )
+        logger.info("Sent character introduction prompt")
+
+    async def _process_assistant_response(self, novel_state: NovelState) -> str:
+        """Обработка ответа ассистента"""
+        run = await self.openai_client.beta.threads.runs.create(
+            thread_id=novel_state.thread_id,
+            assistant_id=bot_config.assistant_id
+        )
+        
+        start_time = time.time()
+        while True:
+            run = await self.openai_client.beta.threads.runs.retrieve(
+                thread_id=novel_state.thread_id,
+                run_id=run.id
+            )
+            if run.status == "completed":
+                break
+            elif run.status == "failed":
+                raise Exception("Assistant run failed")
+            elif time.time() - start_time > 30:
+                raise Exception("Assistant run timeout")
+            await asyncio.sleep(1)
+            
+        messages = await self.openai_client.beta.threads.messages.list(
+            thread_id=novel_state.thread_id
+        )
+        return messages.data[0].content[0].text.value
+
+    async def _save_and_send_response(self, message: Message, novel_state: NovelState, assistant_message: str) -> None:
+        """Сохранение и отправка ответа"""
+        cleaned_text, image_ids = extract_images_and_clean_text(assistant_message)
+        
+        async with self.uow as uow:
+            await self.save_message(novel_state, cleaned_text)
+            await uow.commit()
+            
+        await send_assistant_response(message, assistant_message)
+
     async def end_story(self, novel_state: NovelState, message: Message, silent: bool = False) -> None:
         """Завершает новеллу и очищает данные"""
         try:
-            # Устанавливаем флаг необходимости оплаты
-            novel_state.needs_payment = True
-            novel_state.is_completed = True
-            await self.session.commit()
+            async with self.uow as uow:
+                novel_state.needs_payment = True
+                novel_state.is_completed = True
+                await uow.commit()
             
-            # Удаляем тред в OpenAI
             try:
-                await openai_client.beta.threads.delete(thread_id=novel_state.thread_id)
+                await self.openai_client.beta.threads.delete(thread_id=novel_state.thread_id)
             except Exception as e:
                 logger.error(f"Error deleting thread: {e}")
             

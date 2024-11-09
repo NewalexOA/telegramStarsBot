@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from handlers import admin_actions, novel
 from middlewares.check_subscription import CheckSubscriptionMiddleware
 from middlewares.localization import L10nMiddleware
-from middlewares.db import DatabaseMiddleware
+from middlewares.db import DbSessionMiddleware
 from fluent_loader import get_fluent_localization
 
 def get_dispatcher() -> Dispatcher:
@@ -25,8 +25,8 @@ def get_dispatcher() -> Dispatcher:
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
     
     # Регистрируем мидлвари
-    dp.message.middleware(DatabaseMiddleware(session_maker))
-    dp.callback_query.middleware(DatabaseMiddleware(session_maker))
+    dp.message.middleware(DbSessionMiddleware(session_maker))
+    dp.callback_query.middleware(DbSessionMiddleware(session_maker))
     
     # Регистрируем локализацию
     i18n_middleware = L10nMiddleware(get_fluent_localization())

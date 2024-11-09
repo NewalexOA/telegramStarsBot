@@ -1,19 +1,20 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, func
-from sqlalchemy.orm import relationship
-from models.base import Base
+from datetime import datetime
+from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from database.base import Base
 
 class NovelState(Base):
     """Model for storing novel state"""
     __tablename__ = "novel_states"
     
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, nullable=False, unique=True)
-    thread_id = Column(String(255), nullable=False)
-    current_scene = Column(Integer, default=0)
-    is_completed = Column(Boolean, default=False)  # Флаг завершения новеллы
-    needs_payment = Column(Boolean, default=False)  # Флаг необходимости оплаты
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    thread_id: Mapped[str] = mapped_column(String)
+    current_scene: Mapped[int] = mapped_column(Integer, default=0)
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    needs_payment: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Связь с сообщениями
     messages = relationship("NovelMessage", back_populates="novel_state", cascade="all, delete-orphan")
@@ -22,11 +23,11 @@ class NovelMessage(Base):
     """Model for storing novel messages"""
     __tablename__ = "novel_messages"
     
-    id = Column(Integer, primary_key=True)
-    novel_state_id = Column(Integer, ForeignKey('novel_states.id'), nullable=False)
-    is_user = Column(Boolean, default=False)  # True если сообщение от пользователя
-    content = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    id: Mapped[int] = mapped_column(primary_key=True)
+    novel_state_id: Mapped[int] = mapped_column(ForeignKey("novel_states.id"))
+    content: Mapped[str] = mapped_column(String)
+    is_user: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # Связь с состоянием новеллы
-    novel_state = relationship("NovelState", back_populates="messages") 
+    novel_state = relationship("NovelState", back_populates="messages")

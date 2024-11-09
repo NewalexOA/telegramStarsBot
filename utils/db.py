@@ -1,7 +1,5 @@
 from sqlalchemy.ext.asyncio import create_async_engine
 from models.base import Base
-from models.novel import NovelState, NovelMessage
-from models.referral import ReferralLink, Referral, PendingReferral, ReferralReward
 import structlog
 
 async def create_db():
