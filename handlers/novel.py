@@ -7,6 +7,8 @@ from services.novel import NovelService
 from filters.chat_type import ChatTypeFilter
 from keyboards.menu import get_main_menu
 from filters.referral import RegularStartCommandFilter
+from filters.is_admin import IsAdminFilter
+from handlers.personal_actions import show_help
 
 logger = structlog.get_logger()
 
@@ -21,13 +23,19 @@ PRIORITIES = {
     "TEXT": 1
 }
 
+# Все команды меню
 MENU_COMMANDS = {
+    # Основные кнопки
     "🎮 Новелла",
+    "📖 Продолжить",
     "🔄 Рестарт",
-    "💝 Донат",
-    "❓ Помощь",
+    # Админские кнопки
+    "📊 Статистика",
+    "🗑 Очистить базу",
+    # Общие кнопки
     "🔗 Реферальная ссылка",
-    "📖 Продолжить"
+    "💝 Донат",
+    "❓ Помощь"
 }
 
 async def start_novel_common(message: Message, novel_service: NovelService, l10n) -> None:
@@ -98,11 +106,21 @@ async def cmd_start(message: Message, novel_service: NovelService, l10n):
 async def handle_menu_command(message: Message, novel_service: NovelService, l10n):
     """Обработчик команд меню"""
     command = message.text
+    
+    # Проверяем права для админских команд
+    if command in {"📊 Статистика", "🗑 Очистить базу"}:
+        is_admin = await IsAdminFilter(is_admin=True)(message)
+        if not is_admin:
+            return
+            
+    # Обработка команд
     if command in {"🎮 Новелла", "🔄 Рестарт"}:
         await start_novel_common(message, novel_service, l10n)
     elif command == "📖 Продолжить":
         await continue_novel(message, novel_service, l10n)
-    # Остальные команды меню обрабатываются в других хендлерах
+    elif command == "❓ Помощь":
+        await show_help(message, l10n)
+    # Остальные команды обрабатываются в своих хендлерах
 
 @router.message(F.text, flags={"priority": PRIORITIES["TEXT"]})
 async def handle_text(message: Message, novel_service: NovelService):

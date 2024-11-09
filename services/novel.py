@@ -1,4 +1,4 @@
-from typing import Optional, List, Tuple
+from typing import Optional
 import asyncio
 import time
 import structlog
@@ -124,21 +124,24 @@ class NovelService:
 
     async def _handle_regular_message(self, message: Message, novel_state: NovelState, text: str) -> None:
         """Обработка обычного сообщения"""
-        async with self.uow as uow:
-            await self.save_message(novel_state, text, is_user=True)
-            
-            messages = await self.openai_client.beta.threads.messages.list(
-                thread_id=novel_state.thread_id
+        # Сохраняем сообщение пользователя
+        await self.save_message(novel_state, text, is_user=True)
+        
+        # Получаем список сообщений из треда
+        messages = await self.openai_client.beta.threads.messages.list(
+            thread_id=novel_state.thread_id
+        )
+        
+        # Если это второе сообщение (после инициализации), обрабатываем как имя
+        if len(messages.data) == 2:
+            await self._handle_name_response(novel_state, text)
+        else:
+            # Иначе отправляем обычное сообщение в тред
+            await self.openai_client.beta.threads.messages.create(
+                thread_id=novel_state.thread_id,
+                role="user",
+                content=text
             )
-            
-            if len(messages.data) == 2:
-                await self._handle_name_response(novel_state, text)
-            else:
-                await self.openai_client.beta.threads.messages.create(
-                    thread_id=novel_state.thread_id,
-                    role="user",
-                    content=text
-                )
 
     async def _handle_name_response(self, novel_state: NovelState, name: str) -> None:
         """Обработка ответа с именем"""

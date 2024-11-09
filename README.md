@@ -193,3 +193,63 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Лицензия
 
 Этот проект лицензирован под MIT License - смотрите файл LICENSE для подробностей.
+
+---
+
+# Project Documentation
+
+## Overview
+Проект представляет собой Telegram бот с функциональностью управления новеллами, платежами, реферальной системой и административными задачами. Архитектура построена по принципам чистой архитектуры, используя паттерны Repository и Dependency Injection.
+
+## Architecture
+- **Handlers**: Обработчики сообщений и команд бота.
+- **Services**: Бизнес-логика приложения.
+- **Repositories**: Работа с данными через паттерн Repository.
+- **Database**: Управление базой данных.
+- **DI (Dependency Injection)**: Внедрение зависимостей.
+- **Filters**: Фильтры для обработки сообщений.
+- **Middlewares**: Промежуточные обработчики для проверок и модификаций.
+
+## Services
+Сервисы реализованы в папке `services/` и включают следующие компоненты:
+- **AdminService**
+  - Управление и администрирование бота.
+  - Методы: `get_stats`, `get_user_details`, `clear_database`.
+- **NovelService**
+  - Управление состоянием новелл пользователей.
+  - Методы: `start_novel`, `get_novel_state`, `update_novel_state`.
+- **ReferralService**
+  - Управление реферальной системой.
+  - Методы: `create_referral_link`, `process_referral`, `get_user_rewards`.
+- **PaymentService**
+  - Обработка платежей и управление транзакциями.
+  - Методы: `process_payment`, `get_payment_history`, `count_all_payments`, `get_total_payment_amount`.
+
+## Getting Started
+1. **Установка зависимостей**:    ```bash
+    pip install -r requirements.txt    ```
+2. **Настройка конфигурации**:
+    - Заполните необходимые параметры в конфигурационных файлах.
+3. **Запуск миграций**:    ```bash
+    python manage.py migrate    ```
+4. **Запуск бота**:    ```bash
+    python bot.py    ```
+
+## Features
+- Управление новеллами пользователей.
+- Обработка платежей и донатов.
+- Реферальная система для увеличения аудитории.
+- Административные функции для мониторинга и управления.
+- Локализация сообщений.
+- Проверка подписки пользователей на каналы.
+
+## Error Handling
+- Логирование всех операций через `structlog`.
+- Обработка исключений в сервисах и обработчиках.
+- Корректное управление транзакциями через Unit of Work.
+
+## Contribution
+Пожалуйста, следуйте стандартным практикам разработки и тестированию при внесении изменений.
+
+## License
+[MIT](LICENSE)

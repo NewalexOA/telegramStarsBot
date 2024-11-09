@@ -1,78 +1,88 @@
-from enum import StrEnum
-from pathlib import Path
-from typing import Any, Type, Union
-from pydantic import BaseModel, SecretStr, field_validator
+from typing import Optional, List
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-import structlog
 import tomli
+import os
+from pathlib import Path
+import ast
+import structlog
 
 logger = structlog.get_logger()
 
-class LogRenderer(StrEnum):
-    """Log renderer type"""
-    JSON = "json"
-    CONSOLE = "console"
-
 class BotConfig(BaseSettings):
-    """Bot configuration"""
-    token: SecretStr
-    owners: list[int]
-    required_channel_id: int
-    required_channel_invite: str
-    provider_token: str = ""
-    openai_api_key: SecretStr
-    assistant_id: str
-
-    @field_validator("owners", mode="before")
+    """Конфигурация бота"""
+    token: SecretStr = SecretStr("")
+    owners: List[int] = []
+    required_channel_id: Optional[int] = None
+    required_channel_url: Optional[str] = None
+    openai_api_key: SecretStr = SecretStr("")
+    assistant_id: str = ""
+    provider_token: SecretStr = SecretStr("")
+    
+    @field_validator('owners', mode='before')
     @classmethod
     def parse_owners(cls, v):
+        """Парсинг списка владельцев из строки"""
         if isinstance(v, str):
             try:
-                v = v.strip('[]').replace(' ', '')
-                return [int(x) for x in v.split(',') if x]
-            except Exception as e:
-                logger.error("Failed to parse owners", error=str(e), value=v)
-                raise ValueError(f"Invalid owners format: {v}")
+                # Безопасный парсинг строки списка
+                parsed = ast.literal_eval(v)
+                logger.debug(f"Parsed owners from {v} to {parsed}")
+                return parsed
+            except (ValueError, SyntaxError) as e:
+                logger.error(f"Error parsing owners: {e}")
+                return []
         return v
-
+    
     model_config = SettingsConfigDict(
-        env_prefix="BOT_",
-        env_file=".env",
-        env_file_encoding="utf-8"
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='allow',
+        env_mapping = {
+            'token': 'BOT_TOKEN',
+            'owners': 'BOT_OWNERS',
+            'required_channel_id': 'BOT_REQUIRED_CHANNEL_ID',
+            'required_channel_url': 'BOT_REQUIRED_CHANNEL_URL',
+            'openai_api_key': 'BOT_OPENAI_API_KEY',
+            'assistant_id': 'BOT_ASSISTANT_ID'
+        }
     )
 
-class LogConfig(BaseModel):
-    """Log configuration"""
-    show_datetime: bool
-    datetime_format: str
-    show_debug_logs: bool
-    time_in_utc: bool
-    renderer: LogRenderer
-    use_colors_in_console: bool
+def load_toml_config() -> dict:
+    """Загрузка конфигурации из config.toml"""
+    config_path = Path('config.toml')
+    if config_path.exists():
+        with open(config_path, 'rb') as f:
+            return tomli.load(f)
+    return {}
 
-def get_config(config_type: Type[Union[BotConfig, LogConfig]], root_key: str | None = None) -> Any:
-    """Get configuration instance"""
-    # Для BotConfig используем .env
-    if config_type == BotConfig:
-        return BotConfig()
-        
-    # Для LogConfig используем config.toml
-    if config_type == LogConfig:
-        try:
-            config_path = Path(__file__).parent / "config.toml"
-            if not config_path.exists():
-                raise FileNotFoundError("config.toml not found")
-                
-            with open(config_path, "rb") as f:
-                raw_config = tomli.load(f)
-                
-            if root_key not in raw_config:
-                raise KeyError(f"Section {root_key} not found in config.toml")
-                
-            return LogConfig.model_validate(raw_config[root_key])
-            
-        except Exception as e:
-            logger.error("Failed to load log config from TOML", error=str(e))
-            raise
-            
-    raise ValueError(f"Unsupported config type: {config_type}")
+def get_config(config_class: type[BaseSettings], section: str = None) -> BaseSettings:
+    """
+    Получение конфигурации с приоритетом config.toml над .env
+    """
+    # Загружаем config.toml
+    toml_config = load_toml_config()
+    logger.debug(f"Loaded TOML config: {toml_config}")
+    
+    # Получаем значения из нужной секции
+    section_config = toml_config.get(section, {}) if section else toml_config
+    
+    # Маппинг имен переменных окружения
+    env_mapping = config_class.model_config.get('env_mapping', {})
+    
+    # Создаем словарь с переменными окружения, используя маппинг
+    env_values = {}
+    for class_field, env_field in env_mapping.items():
+        env_value = os.getenv(env_field.upper())
+        if env_value is not None:
+            env_values[class_field] = env_value
+    
+    logger.debug(f"Loaded ENV values: {env_values}")
+    
+    # Приоритет config.toml над .env
+    combined_config = {**env_values, **section_config}
+    logger.debug(f"Combined config: {combined_config}")
+    
+    config = config_class(**combined_config)
+    logger.debug(f"Final config values: owners={config.owners}")
+    return config

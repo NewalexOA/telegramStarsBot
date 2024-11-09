@@ -8,7 +8,6 @@ from middlewares.localization import L10nMiddleware
 from handlers import (
     novel, referral, personal_actions
 )
-from utils.db import create_db
 from di.container import Container
 from fluent_loader import get_fluent_localization
 
