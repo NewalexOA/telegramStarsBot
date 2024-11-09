@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, func
 from sqlalchemy.orm import relationship
 from models.base import Base
@@ -12,8 +13,8 @@ class NovelState(Base):
     current_scene = Column(Integer, default=0)
     is_completed = Column(Boolean, default=False)  # Флаг завершения новеллы
     needs_payment = Column(Boolean, default=False)  # Флаг необходимости оплаты
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
     
     # Связь с сообщениями
     messages = relationship("NovelMessage", back_populates="novel_state", cascade="all, delete-orphan")
