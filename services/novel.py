@@ -186,7 +186,7 @@ class NovelService:
         cleaned_text, image_ids = extract_images_and_clean_text(assistant_message)
         
         async with self.uow as uow:
-            await self.save_message(novel_state, cleaned_text)
+            await self.save_message(novel_state, cleaned_text, is_user=False)
             await uow.commit()
             
         await send_assistant_response(message, assistant_message)
@@ -214,3 +214,41 @@ class NovelService:
             logger.error(f"Error ending story: {e}")
             if not silent:
                 await message.answer("Произошла ошибка при завершении истории")
+
+    async def save_message(self, novel_state: NovelState, content: str, is_user: bool = False) -> NovelMessage:
+        """Сохранение сообщения в базу данных"""
+        async with self.uow as uow:
+            message = await uow.novel_messages.create(
+                novel_state_id=novel_state.id,
+                content=content,
+                is_user=is_user
+            )
+            await uow.commit()
+            return message
+
+    async def get_last_assistant_message(self, novel_state: NovelState) -> Optional[str]:
+        """Получение последнего сообщения ассистента"""
+        try:
+            async with self.uow as uow:
+                # Получаем последнее сообщение ассистента из базы
+                last_message = await uow.novel_messages.get_last_assistant_message(
+                    novel_state_id=novel_state.id
+                )
+                if last_message:
+                    return last_message.content
+                
+                # Если в базе нет сообщений, пробуем получить из OpenAI
+                try:
+                    messages = await self.openai_client.beta.threads.messages.list(
+                        thread_id=novel_state.thread_id
+                    )
+                    if messages.data:
+                        return messages.data[0].content[0].text.value
+                except Exception as e:
+                    logger.error(f"Error getting messages from OpenAI: {e}")
+                
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error getting last assistant message: {e}")
+            return None

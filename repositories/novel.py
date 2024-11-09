@@ -80,13 +80,16 @@ class NovelMessageRepository(BaseRepository[NovelMessage]):
     
     async def get_last_assistant_message(self, novel_state_id: int) -> Optional[NovelMessage]:
         """Получение последнего сообщения ассистента"""
-        result = await self._session.execute(
-            select(NovelMessage)
+        query = (
+            select(self.model)
             .where(
-                NovelMessage.novel_state_id == novel_state_id,
-                NovelMessage.is_user.is_(False)
+                and_(
+                    self.model.novel_state_id == novel_state_id,
+                    self.model.is_user is False
+                )
             )
-            .order_by(NovelMessage.created_at.desc())
+            .order_by(self.model.id.desc())
             .limit(1)
         )
-        return result.scalar_one_or_none() 
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()

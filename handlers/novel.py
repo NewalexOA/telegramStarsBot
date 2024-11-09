@@ -5,15 +5,15 @@ from aiogram.types import Message
 
 from services.novel import NovelService
 from filters.chat_type import ChatTypeFilter
-from filters.referral import RegularStartCommandFilter
 from keyboards.menu import get_main_menu
-from .base import PermissionMixin
+from filters.referral import RegularStartCommandFilter
 
 logger = structlog.get_logger()
 
 router = Router(name="novel")
 router.message.filter(ChatTypeFilter(["private"]))
 
+# Константы для приоритетов
 PRIORITIES = {
     "COMMAND": 5,
     "MENU": 4,
@@ -24,102 +24,95 @@ PRIORITIES = {
 MENU_COMMANDS = {
     "🎮 Новелла",
     "🔄 Рестарт",
+    "💝 Донат",
+    "❓ Помощь",
+    "🔗 Реферальная ссылка",
     "📖 Продолжить"
 }
 
-class NovelHandlers(PermissionMixin):
-    """Обработчики команд новеллы"""
+async def start_novel_common(message: Message, novel_service: NovelService, l10n) -> None:
+    """Общая логика запуска новеллы"""
+    user_id = message.from_user.id
+    logger.info(f"Starting novel for user {user_id}")
     
-    def __init__(self, novel_service: NovelService):
-        self.novel_service = novel_service
-    
-    async def start_novel(self, message: Message, l10n) -> None:
-        """Запуск новеллы"""
-        user_id = message.from_user.id
-        logger.info(f"Starting novel for user {user_id}")
-        
-        try:
-            novel_state = await self.novel_service.create_novel_state(user_id)
-            if not novel_state:
-                await message.answer(
-                    l10n.format_value("novel-payment-required"),
-                    reply_markup=get_main_menu(has_active_novel=False)
-                )
-                return
-            
+    try:
+        # Создаём новое состояние новеллы
+        novel_state = await novel_service.create_novel_state(user_id)
+        if not novel_state:
             await message.answer(
-                l10n.format_value("novel-started"),
+                l10n.format_value("novel-payment-required"),
+                reply_markup=get_main_menu(has_active_novel=False)
+            )
+            return
+            
+        await message.answer(
+            l10n.format_value("novel-started"),
+            reply_markup=get_main_menu(has_active_novel=True)
+        )
+        loading_message = await message.answer("⌛️ Загрузка истории...")
+        
+        await novel_service.process_message(
+            message=message,
+            novel_state=novel_state,
+            initial_message=True
+        )
+        await loading_message.delete()
+        
+    except Exception as e:
+        logger.error(f"Error starting novel: {e}", exc_info=True)
+        await message.answer(l10n.format_value("novel-error"))
+
+async def continue_novel(message: Message, novel_service: NovelService, l10n) -> None:
+    """Продолжение существующей новеллы"""
+    try:
+        novel_state = await novel_service.get_novel_state(message.from_user.id)
+        if not novel_state:
+            await message.answer(
+                l10n.format_value("no-active-novel"),
+                reply_markup=get_main_menu(has_active_novel=False)
+            )
+            return
+            
+        last_message = await novel_service.get_last_assistant_message(novel_state)
+        if last_message:
+            await message.answer(
+                last_message,
                 reply_markup=get_main_menu(has_active_novel=True)
             )
-            loading_message = await message.answer("⌛️ Загрузка истории...")
-            
-            await self.novel_service.process_message(
-                message=message,
-                novel_state=novel_state,
-                initial_message=True
+        else:
+            await message.answer(
+                l10n.format_value("no-last-message"),
+                reply_markup=get_main_menu(has_active_novel=True)
             )
-            await loading_message.delete()
             
-        except Exception as e:
-            logger.error(f"Error starting novel: {e}", exc_info=True)
-            await message.answer(l10n.format_value("novel-error"))
-    
-    async def handle_message(self, message: Message) -> None:
-        """Обработка сообщений в новелле"""
-        try:
-            novel_state = await self.novel_service.get_novel_state(message.from_user.id)
-            if not novel_state:
-                await message.answer(
-                    "У вас нет активной новеллы. Нажмите '🎮 Новелла' чтобы начать.",
-                    reply_markup=get_main_menu(has_active_novel=False)
-                )
-                return
-                
-            await self.novel_service.process_message(
-                message=message,
-                novel_state=novel_state,
-                initial_message=False
-            )
-        except Exception as e:
-            logger.error(f"Error handling message: {e}", exc_info=True)
-            await message.answer("Произошла ошибка при обработке сообщения")
-
-# Инициализация обработчиков
-novel_handlers = NovelHandlers(novel_service=None)  # Инициализируется через DI
+    except Exception as e:
+        logger.error(f"Error continuing novel: {e}", exc_info=True)
+        await message.answer(l10n.format_value("novel-error"))
 
 @router.message(Command("start"), RegularStartCommandFilter())
 async def cmd_start(message: Message, novel_service: NovelService, l10n):
-    """Обработчик обычной команды /start"""
-    global novel_handlers
-    novel_handlers = NovelHandlers(novel_service)
-    
-    is_admin, is_owner = await novel_handlers.check_permissions(message)
-    if not (is_admin or is_owner):
-        if not await novel_handlers.check_subscription(message, l10n):
-            return
-    
-    await novel_handlers.start_novel(message, l10n)
+    """Обработчик команды /start"""
+    await start_novel_common(message, novel_service, l10n)
 
-@router.message(F.text.in_(MENU_COMMANDS))
+@router.message(F.text.in_(MENU_COMMANDS), flags={"priority": PRIORITIES["MENU"]})
 async def handle_menu_command(message: Message, novel_service: NovelService, l10n):
     """Обработчик команд меню"""
-    global novel_handlers
-    novel_handlers = NovelHandlers(novel_service)
-    
-    is_admin, is_owner = await novel_handlers.check_permissions(message)
-    if not (is_admin or is_owner):
-        if not await novel_handlers.check_subscription(message, l10n):
-            return
-    
     command = message.text
     if command in {"🎮 Новелла", "🔄 Рестарт"}:
-        await novel_handlers.start_novel(message, l10n)
+        await start_novel_common(message, novel_service, l10n)
     elif command == "📖 Продолжить":
-        await novel_handlers.handle_message(message)
+        await continue_novel(message, novel_service, l10n)
+    # Остальные команды меню обрабатываются в других хендлерах
 
-@router.message(F.text)
+@router.message(F.text, flags={"priority": PRIORITIES["TEXT"]})
 async def handle_text(message: Message, novel_service: NovelService):
     """Обработчик текстовых сообщений"""
-    global novel_handlers
-    novel_handlers = NovelHandlers(novel_service)
-    await novel_handlers.handle_message(message)
+    novel_state = await novel_service.get_novel_state(message.from_user.id)
+    if not novel_state:
+        return
+        
+    await novel_service.process_message(
+        message=message,
+        novel_state=novel_state,
+        initial_message=False
+    )
