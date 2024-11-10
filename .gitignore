@@ -189,3 +189,4 @@ fabric.properties
 /.ruff_cache/
 bot.db
 /image_cache
+.env.bac
