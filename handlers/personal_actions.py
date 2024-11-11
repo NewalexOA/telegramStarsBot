@@ -121,8 +121,17 @@ async def menu_restart(message: Message, session: AsyncSession, l10n):
         )
         return
     
-    # Отправляем счет на оплату рестарта
-    await send_restart_invoice(message, l10n)
+    # Получаем состояние новеллы
+    novel_service = NovelService(session)
+    novel_state = await novel_service.get_novel_state(message.from_user.id)
+    
+    # Проверяем необходимость оплаты
+    if novel_state and novel_state.needs_payment:
+        # Отправляем счет на оплату рестарта
+        await send_restart_invoice(message, l10n)
+    else:
+        # Если оплата не требуется, запускаем новеллу
+        await start_novel_common(message, session, l10n)
 
 @router.message(F.text == "❓ Помощь")
 async def menu_help(message: Message, l10n):
