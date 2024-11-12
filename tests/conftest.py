@@ -1,6 +1,6 @@
 import pytest
 import pytest_asyncio
-from typing import AsyncGenerator, Any, Callable
+from typing import AsyncGenerator, Any
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -8,7 +8,7 @@ from aiogram.types import User
 
 from models.base import Base
 from models.enums import RewardType
-from config_reader import BotConfig, get_config
+from config_reader import bot_config
 
 @pytest.fixture(scope="session")
 def event_loop(request: pytest.FixtureRequest) -> Any:
@@ -56,7 +56,6 @@ async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
 async def bot() -> AsyncGenerator[Bot, None]:
     """Create test bot instance"""
     session = AiohttpSession()
-    bot_config = get_config(BotConfig, "bot")
     bot = Bot(bot_config.token.get_secret_value(), session=session)
     
     # Создаем фейковый объект me для тестов

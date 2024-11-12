@@ -2,12 +2,11 @@ import aiohttp
 import structlog
 from aiogram.types import Message, BufferedInputFile
 from openai import AsyncOpenAI
-from config_reader import get_config, BotConfig
+from config_reader import bot_config
 from utils.image_cache import ImageCache
 from utils.text_utils import extract_images_and_clean_text
 
 logger = structlog.get_logger()
-bot_config = get_config(BotConfig, "bot")
 openai_client = AsyncOpenAI(
     api_key=bot_config.openai_api_key.get_secret_value()
 )

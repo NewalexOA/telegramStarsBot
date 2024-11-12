@@ -5,6 +5,7 @@ from pydantic import BaseModel, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import structlog
 import tomli
+from dotenv import load_dotenv, set_key
 
 logger = structlog.get_logger()
 
@@ -76,3 +77,11 @@ def get_config(config_type: Type[Union[BotConfig, LogConfig]], root_key: str | N
             raise
             
     raise ValueError(f"Unsupported config type: {config_type}")
+
+bot_config = get_config(BotConfig, "bot")
+
+def update_assistant_id(assistant_id: str) -> None:
+    """Обновляет assistant_id в конфиге"""
+    global bot_config
+    bot_config.assistant_id = assistant_id
+    logger.info(f"Assistant ID updated in config: {assistant_id}")
