@@ -27,7 +27,7 @@ router = Router()
 router.message.filter(ChatTypeFilter(["private"]))
 
 # В начале файла добавим константу
-RESTART_COST = 10  # Стоимость рестарта новеллы в Stars
+RESTART_COST = 100  # Стоимость рестарта новеллы в Stars
 
 @router.message(Command("start"), RegularStartCommandFilter())
 async def cmd_start(message: Message, session: AsyncSession, l10n):
@@ -356,8 +356,8 @@ async def send_restart_invoice(message: Message, session: AsyncSession, l10n: Fl
     # Формируем описание с учетом скидки
     description = l10n.format_value("restart-invoice-description")
     if discount > 0:
-        description += f"\nВаша скидка: {discount}%"
-        description += f"\nИтоговая цена: {final_cost} XTR"
+        description += f"\nВаша скидка: {discount}%\n\n"
+        description += f"Итоговая цена: {final_cost} ⭐️"
 
     prices = [LabeledPrice(label="XTR", amount=final_cost)]
     
