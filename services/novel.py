@@ -3,7 +3,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.types import Message
-from config_reader import get_config, BotConfig
+from config_reader import bot_config
 import time
 
 from models.novel import NovelState, NovelMessage
@@ -11,7 +11,6 @@ from utils.openai_helper import openai_client, send_assistant_response
 from keyboards.menu import get_main_menu
 
 logger = structlog.get_logger()
-bot_config = get_config(BotConfig, "bot")
 
 # В начале файла
 SKIP_COMMANDS = {
@@ -176,27 +175,53 @@ class NovelService:
                     )
                     logger.info("Sent regular message")
 
-            # Запускаем ассистента
-            run = await openai_client.beta.threads.runs.create(
-                thread_id=novel_state.thread_id,
-                assistant_id=bot_config.assistant_id
-            )
-            logger.info(f"Started run {run.id}")
-
-            # Ожидаем завершения
-            start_time = time.time()
-            while True:
-                run = await openai_client.beta.threads.runs.retrieve(
+            max_attempts = 3  # Максимальное количество попыток
+            attempt = 0
+            
+            while attempt < max_attempts:
+                attempt += 1
+                logger.info(f"Attempt {attempt}/{max_attempts} to get assistant response")
+                
+                # Запускаем ассистента
+                run = await openai_client.beta.threads.runs.create(
                     thread_id=novel_state.thread_id,
-                    run_id=run.id
+                    assistant_id=bot_config.assistant_id
                 )
+                logger.info(f"Started run {run.id}")
+
+                # Ожидаем завершения
+                start_time = time.time()
+                timeout = 180  # Таймаут 3 минуты
+                
+                while True:
+                    run = await openai_client.beta.threads.runs.retrieve(
+                        thread_id=novel_state.thread_id,
+                        run_id=run.id
+                    )
+                    
+                    if run.status == "completed":
+                        break
+                    elif run.status == "failed":
+                        if attempt < max_attempts:
+                            logger.warning(f"Assistant run failed on attempt {attempt}, retrying...")
+                            await asyncio.sleep(2)  # Небольшая пауза перед следующей попыткой
+                            break  # Выходим из внутреннего цикла для новой попытки
+                        else:
+                            raise Exception(f"Assistant run failed after {max_attempts} attempts")
+                    elif run.status == "expired":
+                        raise Exception("Assistant run expired")
+                    elif time.time() - start_time > timeout:
+                        raise Exception(f"Assistant run timeout after {timeout} seconds. Last status: {run.status}")
+                    
+                    # Логируем статус каждые 10 секунд
+                    if int(time.time() - start_time) % 10 == 0:
+                        logger.info(f"Waiting for assistant response... Status: {run.status}, Time elapsed: {int(time.time() - start_time)}s")
+                    
+                    await asyncio.sleep(1)
+                
+                # Если выполнение успешно завершено, выходим из цикла попыток
                 if run.status == "completed":
                     break
-                elif run.status == "failed":
-                    raise Exception("Assistant run failed")
-                elif time.time() - start_time > 30:
-                    raise Exception("Assistant run timeout")
-                await asyncio.sleep(1)
 
             duration = time.time() - start_time
             logger.info(f"Run completed in {duration:.2f} seconds")
@@ -218,8 +243,8 @@ class NovelService:
             logger.info("Response sent to user")
 
         except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
-            await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте ещё раз.")
+            logger.error(f"Error processing message: {e}")
+            await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте позже.")
 
     async def end_story(self, novel_state: NovelState, message: Message, silent: bool = False) -> None:
         """Завершает новеллу и очищает данные"""

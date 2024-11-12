@@ -3,7 +3,7 @@ import logging
 import structlog
 
 from aiogram import Bot
-from config_reader import get_config, BotConfig
+from config_reader import bot_config, update_assistant_id
 from dispatcher import get_dispatcher
 from logs import init_logging
 from utils.db import create_db
@@ -25,7 +25,6 @@ async def main():
     await create_db()
     
     # Initialize bot and dispatcher
-    bot_config = get_config(BotConfig, "bot")
     bot = Bot(token=bot_config.token.get_secret_value())
     dp = get_dispatcher()
     
@@ -36,6 +35,7 @@ async def main():
     if not assistant_id:
         assistant_id = await create_assistant()
         logger.info(f"Created new assistant with ID: {assistant_id}")
+        update_assistant_id(assistant_id)
     
     # Run bot
     await logger.ainfo("Starting the bot...")
