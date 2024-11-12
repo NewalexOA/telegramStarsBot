@@ -7,7 +7,7 @@ from config_reader import bot_config
 import time
 
 from models.novel import NovelState, NovelMessage
-from utils.openai_helper import openai_client, send_assistant_response
+from utils.openai_helper import openai_client, send_assistant_response, handle_tool_calls
 from keyboards.menu import get_main_menu
 
 logger = structlog.get_logger()
@@ -182,30 +182,71 @@ class NovelService:
                 attempt += 1
                 logger.info(f"Attempt {attempt}/{max_attempts} to get assistant response")
                 
+                # Проверяем, не был ли тред удален
+                if not novel_state.thread_id:
+                    logger.info("Thread was deleted, stopping message processing")
+                    return  # Добавляем return для полного завершения
+                
                 # Запускаем ассистента
-                run = await openai_client.beta.threads.runs.create(
-                    thread_id=novel_state.thread_id,
-                    assistant_id=bot_config.assistant_id
-                )
-                logger.info(f"Started run {run.id}")
+                try:
+                    run = await openai_client.beta.threads.runs.create(
+                        thread_id=novel_state.thread_id,
+                        assistant_id=bot_config.assistant_id
+                    )
+                    logger.info(f"Started run {run.id}")
+                except Exception as e:
+                    if "No thread found" in str(e):
+                        logger.info("Thread was deleted, stopping message processing")
+                        return  # Добавляем return для полного завершения
+                    raise e
 
                 # Ожидаем завершения
                 start_time = time.time()
-                timeout = 180  # Таймаут 3 минуты
+                timeout = 180
                 
                 while True:
-                    run = await openai_client.beta.threads.runs.retrieve(
-                        thread_id=novel_state.thread_id,
-                        run_id=run.id
-                    )
+                    if not novel_state.thread_id:
+                        logger.info("Thread was deleted during run, stopping processing")
+                        return  # Добавляем return для полного завершения
                     
+                    try:
+                        run = await openai_client.beta.threads.runs.retrieve(
+                            thread_id=novel_state.thread_id,
+                            run_id=run.id
+                        )
+                    except Exception as e:
+                        if "No thread found" in str(e):
+                            logger.info("Thread was deleted, stopping run retrieval")
+                            return  # Добавляем return для полного завершения
+                        raise e
+
                     if run.status == "completed":
                         break
+                    elif run.status == "requires_action":
+                        logger.info(
+                            "Run requires action",
+                            run_id=run.id,
+                            thread_id=novel_state.thread_id
+                        )
+                        
+                        # Получаем сообщение перед вызовом end_story
+                        messages = await openai_client.beta.threads.messages.list(
+                            thread_id=novel_state.thread_id
+                        )
+                        if messages.data:
+                            assistant_message = messages.data[0].content[0].text.value
+                            # Сохраняем и отправляем сообщение
+                            await self.save_message(novel_state, assistant_message)
+                            await send_assistant_response(message, assistant_message)
+                        
+                        # Теперь обрабатываем tool calls
+                        await handle_tool_calls(run, novel_state.thread_id, self, novel_state, message)
+                        continue
                     elif run.status == "failed":
                         if attempt < max_attempts:
                             logger.warning(f"Assistant run failed on attempt {attempt}, retrying...")
-                            await asyncio.sleep(2)  # Небольшая пауза перед следующей попыткой
-                            break  # Выходим из внутреннего цикла для новой попытки
+                            await asyncio.sleep(2)
+                            break
                         else:
                             raise Exception(f"Assistant run failed after {max_attempts} attempts")
                     elif run.status == "expired":
@@ -249,24 +290,81 @@ class NovelService:
     async def end_story(self, novel_state: NovelState, message: Message, silent: bool = False) -> None:
         """Завершает новеллу и очищает данные"""
         try:
+            logger.info(
+                "Starting story end process",
+                user_id=message.from_user.id,
+                novel_state_id=novel_state.id,
+                thread_id=novel_state.thread_id
+            )
+            
             # Устанавливаем флаг необходимости оплаты
+            logger.info(
+                "Setting payment flags",
+                user_id=message.from_user.id,
+                novel_state_id=novel_state.id
+            )
             novel_state.needs_payment = True
             novel_state.is_completed = True
-            await self.session.commit()
+            
+            try:
+                await self.session.commit()
+                logger.info(
+                    "Payment flags committed successfully",
+                    user_id=message.from_user.id,
+                    novel_state_id=novel_state.id,
+                    needs_payment=novel_state.needs_payment,
+                    is_completed=novel_state.is_completed
+                )
+            except Exception as e:
+                logger.error(
+                    "Error committing payment flags",
+                    user_id=message.from_user.id,
+                    novel_state_id=novel_state.id,
+                    error=str(e)
+                )
+                raise
             
             # Удаляем тред в OpenAI
             try:
+                logger.info(
+                    "Deleting OpenAI thread",
+                    user_id=message.from_user.id,
+                    thread_id=novel_state.thread_id
+                )
                 await openai_client.beta.threads.delete(thread_id=novel_state.thread_id)
+                logger.info(
+                    "OpenAI thread deleted successfully",
+                    user_id=message.from_user.id,
+                    thread_id=novel_state.thread_id
+                )
             except Exception as e:
-                logger.error(f"Error deleting thread: {e}")
+                logger.error(
+                    "Error deleting OpenAI thread",
+                    user_id=message.from_user.id,
+                    thread_id=novel_state.thread_id,
+                    error=str(e)
+                )
             
             if not silent:
+                logger.info(
+                    "Sending completion message",
+                    user_id=message.from_user.id
+                )
                 await message.answer(
                     "История завершена! Чтобы начать новую, нажмите '🎮 Новелла'",
                     reply_markup=get_main_menu(has_active_novel=False)
                 )
+                logger.info(
+                    "Completion message sent",
+                    user_id=message.from_user.id
+                )
                 
         except Exception as e:
-            logger.error(f"Error ending story: {e}")
+            logger.error(
+                "Error ending story",
+                user_id=message.from_user.id,
+                novel_state_id=novel_state.id if novel_state else None,
+                error=str(e)
+            )
             if not silent:
                 await message.answer("Произошла ошибка при завершении истории")
