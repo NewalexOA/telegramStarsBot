@@ -14,3 +14,15 @@ def test_remove_ai_photo_text():
     assert isinstance(first_message, tuple)
     text, image_id = first_message
     assert "AI отправляет фото:" not in text
+
+def test_clean_multiline_description():
+    text = """[Описание: Анжела встречается с Катей в небольшом уютном кафе,
+где они часто проводили время. Вечернее солнце мягко освещает их столик у окна,
+и в этом спокойном месте, под лёгкий аромат кофе, Катя решает открыть свои переживания.]"""
+    
+    messages = extract_images_and_clean_text(text)
+    assert len(messages) == 1
+    cleaned_text, _ = messages[0]
+    assert "[Описание:" not in cleaned_text
+    assert "]" not in cleaned_text
+    assert cleaned_text.startswith("Анжела встречается")

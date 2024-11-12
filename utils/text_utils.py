@@ -35,7 +35,9 @@ def extract_images_and_clean_text(text: str) -> List[Tuple[Optional[str], Option
         r'^\d+\.\s+(?=[А-Я])',
         r'Шаг \d+\..*?\n',
         r'Теперь мы готовы начать!.*?\n',
-        r'\[AI отправляет фото:[ \t\r\n]*'
+        r'\[AI отправляет фото:[ \t\r\n]*',
+        r'^\[Описание:[ \t]*',  # Добавляем паттерн для начала описания
+        r'\][ \t]*$',  # Добавляем паттерн для конца описания
     ]
     
     messages = []
@@ -73,10 +75,12 @@ def extract_images_and_clean_text(text: str) -> List[Tuple[Optional[str], Option
 
 def clean_text_content(text: str, service_patterns: List[str]) -> Optional[str]:
     """Очищает текст от служебных паттернов."""
-    # Очищаем от служебных паттернов
-    cleaned = text
+    # Сначала обрабатываем многострочные квадратные скобки
+    cleaned = re.sub(r'^\[(?:Описание:)?[ \t]*(.*?)\][ \t]*$', r'\1', text, flags=re.DOTALL)
+    
+    # Очищаем от остальных служебных паттернов
     for pattern in service_patterns:
-        cleaned = re.sub(pattern, '', cleaned)
+        cleaned = re.sub(pattern, '', cleaned, flags=re.MULTILINE)
     
     # Очищаем от markdown и лишних пробелов
     cleaned = re.sub(r'\*\*', '', cleaned)
