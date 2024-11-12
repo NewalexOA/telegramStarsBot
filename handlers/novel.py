@@ -33,7 +33,7 @@ PRIORITIES = {
     "TEXT": 1
 }
 
-RESTART_COST = 10
+RESTART_COST = 100
 
 MENU_COMMANDS = {
     "🎮 Новелла",
