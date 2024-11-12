@@ -7,5 +7,10 @@ def test_remove_ai_photo_text():
 
     AI отправляет фото:"""
     
-    cleaned_text, _ = extract_images_and_clean_text(text)
-    assert "AI отправляет фото:" not in cleaned_text 
+    messages = extract_images_and_clean_text(text)
+    # Проверяем, что в первом сообщении нет "AI отправляет фото:"
+    assert len(messages) > 0
+    first_message = messages[0]
+    assert isinstance(first_message, tuple)
+    text, image_id = first_message
+    assert "AI отправляет фото:" not in text
