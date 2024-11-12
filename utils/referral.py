@@ -3,6 +3,7 @@ import string
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy import func
 
 from models.referral import ReferralLink, Referral
 
@@ -57,3 +58,21 @@ async def process_referral(
     session.add(referral)
     await session.commit()
     return referral 
+
+async def get_available_discount(user_id: int, session: AsyncSession) -> int:
+    """Возвращает доступную скидку на основе количества рефералов"""
+    # Подсчитываем количество успешных рефералов
+    referral_count = await session.scalar(
+        select(func.count())
+        .select_from(Referral)
+        .where(Referral.referrer_id == user_id)
+    )
+    
+    # Определяем размер скидки
+    if referral_count >= 3:
+        return 50
+    elif referral_count == 2:
+        return 40
+    elif referral_count == 1:
+        return 30
+    return 0

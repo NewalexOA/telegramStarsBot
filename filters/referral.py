@@ -7,15 +7,19 @@ logger = structlog.get_logger()
 class ReferralCommandFilter(BaseFilter):
     """Filter for commands with referral code"""
     async def __call__(self, message: Message) -> bool:
-        args = message.text.split()
-        result = len(args) > 1 and args[1].startswith('ref_')
-        await logger.adebug(
+        logger.info(
             "ReferralCommandFilter check",
             text=message.text,
-            args=args,
-            result=result,
             user_id=message.from_user.id,
             username=message.from_user.username
+        )
+        args = message.text.split()
+        result = len(args) > 1 and args[1].startswith('ref_')
+        logger.info(
+            "ReferralCommandFilter result",
+            result=result,
+            args=args,
+            user_id=message.from_user.id
         )
         return result
 

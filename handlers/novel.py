@@ -15,7 +15,6 @@ from middlewares.check_subscription import check_subscription
 from keyboards.subscription import get_subscription_keyboard
 from keyboards.menu import get_main_menu
 from filters.referral import RegularStartCommandFilter
-from utils.referral_processor import process_referral
 from utils.referral import create_ref_link
 from config_reader import get_config, BotConfig
 
@@ -111,26 +110,7 @@ async def start_novel_common(message: Message, session: AsyncSession, l10n):
 @router.message(
     Command("start"),
     ChatTypeFilter(["private"]),
-    ~RegularStartCommandFilter(),
-    flags={"priority": PRIORITIES["COMMAND"]}
-)
-async def cmd_start_ref(message: Message, session: AsyncSession, l10n):
-    """Обработчик команды /start с реферальной ссылкой"""
-    try:
-        ref_code = message.text.split()[1].replace('ref_', '')
-        await process_referral(session, ref_code, message.from_user.id, message)
-        await cmd_start(message, session, l10n)
-    except (IndexError, ValueError) as e:
-        logger.error(f"Error processing referral: {e}")
-        await cmd_start(message, session, l10n)
-    except Exception as e:
-        logger.error(f"Unexpected error in cmd_start_ref: {e}", exc_info=True)
-        await message.answer(l10n.format_value("novel-error"))
-
-@router.message(
-    Command("start"),
     RegularStartCommandFilter(),
-    ChatTypeFilter(["private"]),
     flags={"priority": PRIORITIES["COMMAND"]}
 )
 async def cmd_start(message: Message, session: AsyncSession, l10n):
