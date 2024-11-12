@@ -117,6 +117,9 @@ class NovelService:
     async def process_message(self, message: Message, novel_state: NovelState, initial_message: bool = False) -> None:
         """Обработка сообщения пользователя"""
         try:
+            if not bot_config.assistant_id:
+                raise ValueError("Assistant ID is not set")
+                
             # Проверяем существование треда перед использованием
             try:
                 thread = await openai_client.beta.threads.retrieve(thread_id=novel_state.thread_id)
