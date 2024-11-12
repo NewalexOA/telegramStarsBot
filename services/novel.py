@@ -8,7 +8,6 @@ import time
 
 from models.novel import NovelState, NovelMessage
 from utils.openai_helper import openai_client, send_assistant_response
-from utils.text_utils import extract_images_and_clean_text
 from keyboards.menu import get_main_menu
 
 logger = structlog.get_logger()
@@ -206,15 +205,12 @@ class NovelService:
             assistant_message = messages.data[0].content[0].text.value
             
             logger.info(f"Raw assistant response:\n{assistant_message}")
-            cleaned_text, image_ids = extract_images_and_clean_text(assistant_message)
-            logger.info(f"Found image IDs: {image_ids}")
-            logger.info(f"Cleaned text:\n{cleaned_text}")
             
-            # Сохраняем ответ ассистента
-            await self.save_message(novel_state, cleaned_text)
+            # Сохраняем оригинальный ответ ассистента
+            await self.save_message(novel_state, assistant_message)
             logger.info("Assistant message saved to database")
             
-            # Отправляем ответ пользователю
+            # Отправляем ответ пользователю (очистка текста происходит внутри)
             await send_assistant_response(message, assistant_message)
             logger.info("Response sent to user")
 

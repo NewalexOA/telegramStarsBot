@@ -1,11 +1,10 @@
-import re
-from typing import Tuple, List
 import aiohttp
 import structlog
 from aiogram.types import Message, BufferedInputFile
 from openai import AsyncOpenAI
 from config_reader import get_config, BotConfig
 from utils.image_cache import ImageCache
+from utils.text_utils import extract_images_and_clean_text
 
 logger = structlog.get_logger()
 bot_config = get_config(BotConfig, "bot")
@@ -100,69 +99,55 @@ async def download_image(url: str) -> bytes:
             logger.error(f"Error downloading image {image_id}: {e}")
             raise
 
-def extract_images_and_clean_text(text: str) -> Tuple[str, List[str]]:
-    """Извлекает ссылки на изображения и очищает текст"""
-    image_patterns = [
-        r'\[AI отправляет фото:.*?https://drive\.google\.com/file/d/(.*?)/view\?usp=sharing.*?\]',
-        r'!\(https://drive\.google\.com/file/d/(.*?)/view\?usp=sharing\)',
-        r'\(https://drive\.google\.com/file/d/(.*?)/view\?usp=sharing\)'
-    ]
+async def send_assistant_response(message: Message, assistant_message: str) -> None:
+    """Отправка ответа ассистента пользователю."""
+    logger.info("Starting extract_images_and_clean_text")
+    logger.info(f"Original message:\n{assistant_message}")
     
-    brackets_pattern = r'\[.*?\]|\]|\['
-    service_patterns = [
-        r'\*\*СЦЕНА \d+:.*?\*\*\n*',
-        r'\*\*Описание:\*\*\n*',
-        r'---\n*',
-        r'Цель достигнута:.*?\n',
-        r'### СЦЕНА.*?\n',
-        r'^\d+\.\s+(?=[А-Я])',
-        r'Теперь мы готовы начать!.*?\n'
-    ]
+    # Получаем список кортежей (текст, image_id)
+    messages = extract_images_and_clean_text(assistant_message)
     
-    image_ids = []
-    cleaned_parts = []
-    last_end = 0
+    logger.info(f"Number of extracted messages: {len(messages)}")
+    logger.info(f"Raw messages: {messages}")  # Добавляем вывод сырых данных
     
-    for pattern in image_patterns:
-        matches = list(re.finditer(pattern, text))
-        for match in matches:
-            cleaned_parts.append(text[last_end:match.start()])
-            image_ids.append(match.group(1))
-            last_end = match.end()
-    
-    cleaned_parts.append(text[last_end:])
-    intermediate_text = ''.join(cleaned_parts)
-    intermediate_text = re.sub(brackets_pattern, '', intermediate_text)
-    
-    for pattern in service_patterns:
-        intermediate_text = re.sub(pattern, '', intermediate_text)
-    
-    intermediate_text = re.sub(r'\*\*', '', intermediate_text)
-    cleaned_text = re.sub(r'\n\s*\n', '\n\n', intermediate_text)
-    cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)
-    cleaned_text = cleaned_text.strip()
-    
-    return cleaned_text, image_ids
-
-async def send_assistant_response(message: Message, assistant_message: str):
-    """Отправка ответа ассистента с разбивкой на части с изображениями"""
-    parts = re.split(r'(\[AI отправляет фото:.*?\]|\!\(https://drive\.google\.com/.*?\)|\(https://drive\.google\.com/.*?\))', assistant_message)
-    
-    for part in parts:
-        if not part.strip():
+    # Проверяем формат каждого сообщения
+    formatted_messages = []
+    for msg in messages:
+        logger.info(f"Processing message item: {msg}")
+        if isinstance(msg, tuple) and len(msg) == 2:
+            formatted_messages.append(msg)
+        elif isinstance(msg, str):
+            formatted_messages.append((msg, None))
+        else:
+            logger.error(f"Unexpected message format: {msg}")
             continue
-            
-        cleaned_text, image_ids = extract_images_and_clean_text(part)
+    
+    logger.info(f"Formatted messages: {formatted_messages}")
+    
+    # Отправляем сообщения
+    for i, (text, image_id) in enumerate(formatted_messages, 1):
+        logger.info(f"\nProcessing message {i}/{len(formatted_messages)}")
+        logger.info(f"Text: {text[:200]}..." if text else "No text")
+        logger.info(f"Image ID: {image_id}" if image_id else "No image")
         
-        for image_id in image_ids:
+        if image_id:
             try:
                 image_url = f"https://drive.google.com/uc?export=view&id={image_id}"
                 logger.info(f"Processing image: {image_id}")
                 image_data = await download_image(image_url)
-                await message.answer_photo(BufferedInputFile(image_data, filename="image.webp"))
+
+                await message.answer_photo(
+                    BufferedInputFile(image_data, filename="image.webp"),
+                    caption=text if text else None
+                )
+                logger.info("Image sent successfully")
             except Exception as e:
                 logger.error(f"Error sending image: {e}")
                 await message.answer("Не удалось загрузить изображение")
-        
-        if cleaned_text:
-            await message.answer(cleaned_text)
+                if text:
+                    logger.info("Sending text after image error")
+                    await message.answer(text)
+        else:
+            if text:
+                logger.info("Sending text-only message")
+                await message.answer(text)

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import structlog
 
 from aiogram import Bot
@@ -7,6 +8,11 @@ from dispatcher import get_dispatcher
 from logs import init_logging
 from utils.db import create_db
 from utils.openai_helper import create_assistant
+
+# Отключаем лишние логи от библиотек
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.DEBUG)
 
 async def main():
     """
@@ -23,8 +29,11 @@ async def main():
     bot = Bot(token=bot_config.token.get_secret_value())
     dp = get_dispatcher()
     
+    assistant_id = bot_config.assistant_id
+    logger.info(f"Assistant ID: {assistant_id}")
+    
     # Создаём ассистента при первом запуске
-    if not bot_config.assistant_id:
+    if not assistant_id:
         assistant_id = await create_assistant()
         logger.info(f"Created new assistant with ID: {assistant_id}")
     
