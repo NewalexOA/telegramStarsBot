@@ -1,11 +1,9 @@
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.types import Message
 
 from models.referral import Referral, ReferralLink
-from utils.rewards import give_reward
-from models.enums import RewardType
 
 logger = structlog.get_logger()
 
@@ -57,33 +55,26 @@ async def process_referral(
         referred_id=referral.referred_id
     )
     
-    # Выдаем награду за реферала
-    try:
-        reward = await give_reward(
-            session,
-            ref_link.user_id,
-            referral.id,
-            RewardType.CHAPTER_UNLOCK,
-            "1"
-        )
-        
-        if reward:
-            await message.bot.send_message(
-                ref_link.user_id,
-                "Поздравляем! Вам открыта новая глава за приглашение друга!"
-            )
-            await logger.ainfo(
-                "Reward processed successfully",
-                reward_id=reward.id,
-                user_id=ref_link.user_id
-            )
-    except Exception as e:
-        await logger.aerror(
-            "Error processing reward",
-            error=str(e),
-            user_id=ref_link.user_id,
-            referral_id=referral.id
-        )
+    # Подсчитываем количество рефералов после успешного добавления
+    referral_count = await session.scalar(
+        select(func.count())
+        .select_from(Referral)
+        .where(Referral.referrer_id == ref_link.user_id)
+    )
+    
+    # Определяем текст сообщения о награде
+    reward_text = "Поздравляем! "
+    if referral_count == 1:
+        reward_text += "Вы получили скидку 30% на перезапуск истории!"
+    elif referral_count == 2:
+        reward_text += "Вы получили скидку 40% на перезапуск истории!"
+    elif referral_count == 3:
+        reward_text += "Вы получили максимальную скидку 50% на перезапуск истории!"
+    
+    await message.bot.send_message(
+        ref_link.user_id,
+        reward_text
+    )
     
     await session.commit()
     return referral 
