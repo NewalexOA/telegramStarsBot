@@ -1,16 +1,6 @@
 import re
 from typing import List, Tuple, Optional
 
-def clean_text(text: str, brackets_pattern: str, service_patterns: List[str]) -> str:
-    """Очищает текст от служебных символов и паттернов."""
-    intermediate_text = re.sub(brackets_pattern, '', text)
-    for pattern in service_patterns:
-        intermediate_text = re.sub(pattern, '', intermediate_text)
-    intermediate_text = re.sub(r'\*\*', '', intermediate_text)
-    cleaned_text = re.sub(r'\n\s*\n', '\n\n', intermediate_text)
-    cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)
-    return cleaned_text.strip()
-
 def extract_images_and_clean_text(text: str) -> List[Tuple[Optional[str], Optional[str]]]:
     """Извлекает изображения и очищает текст, возвращая список кортежей (текст, image_id)."""
     image_patterns = [
