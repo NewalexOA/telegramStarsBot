@@ -17,7 +17,8 @@ from services.novel import NovelService
 from handlers.novel import start_novel_common  # Добавляем в начало файла
 from filters.is_admin import IsAdminFilter
 from filters.is_owner import IsOwnerFilter
-from utils.referral import get_user_ref_link, create_ref_link  # Добавляем импорт
+from utils.referral import get_user_ref_link, create_ref_link, get_available_discount  # Добавляем импорт
+from models.enums import RewardType
 
 logger = structlog.get_logger()
 
@@ -26,7 +27,7 @@ router = Router()
 router.message.filter(ChatTypeFilter(["private"]))
 
 # В начале файла добавим константу
-RESTART_COST = 10  # Стоимость рестарта новеллы в Stars
+RESTART_COST = 100  # Стоимость рестарта новеллы в Stars
 
 @router.message(Command("start"), RegularStartCommandFilter())
 async def cmd_start(message: Message, session: AsyncSession, l10n):
@@ -42,7 +43,7 @@ async def cmd_start(message: Message, session: AsyncSession, l10n):
     # Проверяем, завершил ли пользователь новеллу ранее
     if novel_state and novel_state.is_completed and not is_admin:  # Добавляем проверку not is_admin
         # Отправляем счет на оплату рестарта только обычным пользователям
-        await send_restart_invoice(message, l10n)
+        await send_restart_invoice(message, session, l10n)
         return
     
     if is_admin:
@@ -90,7 +91,7 @@ async def menu_novel(message: Message, session: AsyncSession, l10n):
     # Проверяем, завершил ли пользователь новеллу ранее
     if novel_state and novel_state.is_completed:
         # Отправляем счет на оплату рестарта
-        await send_restart_invoice(message, l10n)
+        await send_restart_invoice(message, session, l10n)
         return
     
     await start_novel_common(message, session, l10n)
@@ -128,7 +129,7 @@ async def menu_restart(message: Message, session: AsyncSession, l10n):
     # Проверяем необходимость оплаты
     if novel_state and novel_state.needs_payment:
         # Отправляем счет на оплату рестарта
-        await send_restart_invoice(message, l10n)
+        await send_restart_invoice(message, session, l10n)
     else:
         # Если оплата не требуется, запускаем новеллу
         await start_novel_common(message, session, l10n)
@@ -330,27 +331,42 @@ async def menu_continue(message: Message, session: AsyncSession, l10n):
         logger.error(f"Error in menu_continue: {e}")
         await message.answer("Произошла ошибка. Пожалуйста, попробуйте ещё раз.")
 
-async def send_restart_invoice(message: Message, l10n: FluentLocalization):
-    """Отправляет счет на оплату рестарта новеллы"""
+async def send_restart_invoice(message: Message, session: AsyncSession, l10n: FluentLocalization):
+    """Отправляет счет на оплату рестарта новеллы с учетом скидки"""
+    # Получаем доступную скидку
+    discount = await get_available_discount(message.from_user.id, session)
+    
+    # Рассчитываем финальную цену
+    final_cost = RESTART_COST * (100 - discount) // 100
+    
     kb = InlineKeyboardBuilder()
-    kb.button(
-        text=l10n.format_value("restart-button-pay", {"amount": RESTART_COST}),
-        pay=True
-    )
+    
+    # Добавляем информацию о скидке в текст кнопки
+    button_text = l10n.format_value("restart-button-pay", {"amount": final_cost})
+    if discount > 0:
+        button_text += f" (-{discount}%)"
+    
+    kb.button(text=button_text, pay=True)
     kb.button(
         text=l10n.format_value("restart-button-cancel"),
         callback_data="restart_cancel"
     )
     kb.adjust(1)
 
-    prices = [LabeledPrice(label="XTR", amount=RESTART_COST)]
+    # Формируем описание с учетом скидки
+    description = l10n.format_value("restart-invoice-description")
+    if discount > 0:
+        description += f"\nВаша скидка: {discount}%\n\n"
+        description += f"Итоговая цена: {final_cost} ⭐️"
+
+    prices = [LabeledPrice(label="XTR", amount=final_cost)]
     
     await message.answer_invoice(
         title=l10n.format_value("restart-invoice-title"),
-        description=l10n.format_value("restart-invoice-description"),
+        description=description,
         prices=prices,
         provider_token="",  # Пустой для Stars
-        payload=f"restart_{RESTART_COST}_stars",
+        payload=f"restart_{final_cost}_stars",
         currency="XTR",
         reply_markup=kb.as_markup()
     )
@@ -383,12 +399,25 @@ async def menu_ref_link(message: Message, session: AsyncSession, l10n):
         bot_username = (await message.bot.me()).username
         invite_link = f"https://t.me/{bot_username}?start=ref_{ref_link.code}"
         
+        # Получаем текущую скидку
+        discount = await get_available_discount(message.from_user.id, session)
+        
+        # Формируем текст о текущих наградах
+        rewards_text = "\nВаши награды:"
+        if discount >= 0 and discount < 50:
+            rewards_text += f"\n- Скидка {discount}% на перезапуск истории\n"
+            rewards_text += "\nПригласите больше друзей и получите скидку до 50% на перезапуск истории!"
+        elif discount >= 50:
+            rewards_text += f"\n- Скидка {discount}% на перезапуск истории\n"
+        else:
+            rewards_text += "\n- Пригласите друзей и получите скидку до 50% на перезапуск истории!"
+        
         await message.answer(
             l10n.format_value(
                 "referral-link-msg",
                 {
                     "link": invite_link,
-                    "reward": "награду"  # или другая награда
+                    "reward": rewards_text
                 }
             ),
             parse_mode="HTML"
