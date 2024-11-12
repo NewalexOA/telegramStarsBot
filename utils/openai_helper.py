@@ -40,7 +40,6 @@ async def create_assistant():
                 }
             }
         },
-        {"type": "retrieval"}
     ]
     
     assistant = await openai_client.beta.assistants.create(
