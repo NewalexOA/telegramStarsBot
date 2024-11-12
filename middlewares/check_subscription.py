@@ -2,13 +2,11 @@ from typing import Callable, Dict, Any, Awaitable, List
 from functools import wraps
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery
-from sqlalchemy import select
 import structlog
 
 from filters.is_subscribed import IsSubscribedFilter
 from keyboards.subscription import get_subscription_keyboard
-from models.referral import PendingReferral
-from utils.referral_processor import process_referral
+from utils.referral_processor import process_pending_referral
 
 logger = structlog.get_logger()
 
@@ -30,36 +28,43 @@ class CheckSubscriptionMiddleware(BaseMiddleware):
         event: Message | CallbackQuery,
         data: Dict[str, Any]
     ) -> Any:
+        logger.info(
+            "Check subscription middleware called",
+            user_id=event.from_user.id,
+            text=event.text if isinstance(event, Message) else None
+        )
+        
         if isinstance(event, Message) and event.text:
             command = event.text.split()[0].lower()
             if command in self.excluded_commands:
+                logger.info(
+                    "Command excluded from subscription check",
+                    command=command
+                )
                 return await handler(event, data)
-
-        user_id = event.from_user.id
         
         is_subscribed = await IsSubscribedFilter()(event)
+        logger.info(
+            "Subscription check result",
+            user_id=event.from_user.id,
+            is_subscribed=is_subscribed
+        )
         
         if is_subscribed:
             session = data.get('session')
             if session:
-                result = await session.execute(
-                    select(PendingReferral)
-                    .where(PendingReferral.user_id == user_id)
-                    .order_by(PendingReferral.created_at.desc())
-                )
-                pending = result.scalar_one_or_none()
-                
-                if pending:
-                    await logger.ainfo(
-                        "Processing pending referral",
-                        ref_code=pending.ref_code,
-                        user_id=user_id
+                try:
+                    await process_pending_referral(
+                        event.from_user.id,
+                        session,
+                        event
                     )
-                    message = event.message if isinstance(event, CallbackQuery) else event
-                    await process_referral(session, pending.ref_code, user_id, message)
-                    await session.delete(pending)
-                    await session.commit()
-            
+                except Exception as e:
+                    logger.error(
+                        "Error processing pending referral in middleware",
+                        error=str(e),
+                        user_id=event.from_user.id
+                    )
             return await handler(event, data)
         else:
             l10n = data.get('l10n')
@@ -90,22 +95,18 @@ def check_subscription(func: Callable) -> Callable:
             
         session = kwargs.get('session')
         if session:
-            result = await session.execute(
-                select(PendingReferral)
-                .where(PendingReferral.user_id == event.from_user.id)
-                .order_by(PendingReferral.created_at.desc())
-            )
-            pending = result.scalar_one_or_none()
-            
-            if pending:
-                await logger.ainfo(
-                    "Processing pending referral",
-                    ref_code=pending.ref_code,
+            try:
+                await process_pending_referral(
+                    event.from_user.id,
+                    session,
+                    event
+                )
+            except Exception as e:
+                logger.error(
+                    "Error processing pending referral in decorator",
+                    error=str(e),
                     user_id=event.from_user.id
                 )
-                await process_referral(session, pending.ref_code, event.from_user.id, event.message)
-                await session.delete(pending)
-                await session.commit()
         
         return await func(event, *args, **kwargs)
     return wrapper
