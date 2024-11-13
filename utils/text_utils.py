@@ -1,6 +1,41 @@
 import re
 from typing import List, Tuple, Optional
 
+# Паттерны для поиска изображений в тексте
+image_patterns = [
+    # Формат [AI отправляет фото: ![название](ссылка)]
+    r'\[AI отправляет фото:[ \t\r\n]*!\[.*?\]\(https://drive\.google\.com/file/d/(.*?)/view\?(?:usp=sharing|usp=drive_link)\)\]',
+    
+    # Формат [AI отправляет фото: ссылка]
+    r'\[AI отправляет фото:[ \t\r\n]*https://drive\.google\.com/file/d/(.*?)/view\?(?:usp=sharing|usp=drive_link)\]',
+]
+
+# Паттерны для очистки служебных сообщений
+service_patterns = [
+    r'\*\*СЦЕНА \d+:.*?\*\*\n*',      # **СЦЕНА 1: ...**
+    r'\*\*Описание:\*\*\n*',          # **Описание:**
+    r'Инициализация:.*?\n',           # Инициализация: ...
+    r'---\n*',                        # Разделители
+    r'Цель достигнута:.*?\n',         # Цель достигнута: ...
+    r'### СЦЕНА.*?\n',                # ### СЦНА ...
+    r'### Переход к.*?сцен[еу].*?\n', # ### Переход к сцене ...
+    r'### ФИНАЛЬНАЯ СЦЕНА:.*?\n',     # ### ФИНАЛЬНАЯ СЦЕНА: ...
+    r'^\d+\.\s+(?=[А-Я])',           # 1. Начало предложения
+    r'Шаг \d+\..*?\n',                # Шаг 1. ...
+    r'Теперь мы готовы начать!.*?\n', # Теперь мы готовы начать!
+    r'["""]Развитие сцены["""]:\s*\n*',  # Учитываем переносы строк после двоеточия
+    r'Развитие сцены:\s*\n*',            # Вариант без кавычек
+    r'\*\*Развитие сцены\*\*:\s*\n*',    # Вариант с звездочками
+    r'\[Описание:[ \t\r\n]*',         # [Описание:
+    r'\][ \t\r\n]*$',                 # Закрывающая скобка в конце
+    r'!\[.*?\]\(',                    # Очистка markdown разметки изображений
+    r'\)[ \t\r\n]*',                  # Закрывающая скобка изображения
+    
+    # Очистка тегов изображений полностью
+    r'\[AI отправляет фото:[ \t\r\n]*!\[.*?\]\(https://drive\.google\.com/file/d/.*?/view\?(?:usp=sharing|usp=drive_link)\)\]',
+    r'\[AI отправляет фото:[ \t\r\n]*https://drive\.google\.com/file/d/.*?/view\?(?:usp=sharing|usp=drive_link)\]',
+]
+
 def clean_assistant_message(text: str) -> str:
     """
     Очищает сообщение ассистента от ссылок и служебных пометок,
@@ -15,106 +50,71 @@ def clean_assistant_message(text: str) -> str:
                 text_part, _ = msg
                 if text_part:
                     clean_text_parts.append(text_part)
-            elif isinstance(msg, str):
-                clean_text_parts.append(msg)
                 
         result = "\n".join(clean_text_parts)
         return result if result else text
     except Exception:
-        return text  # В случае ошибки возвращаем оригинальный текст
+        return text
 
 def extract_images_and_clean_text(text: str) -> List[Tuple[Optional[str], Optional[str]]]:
-    """Извлекает изображения и очищает текст, возвращая список кортежей (текст, image_id)."""
-    # Если текст пустой или None, возвращаем пустой список
+    """
+    Извлекает изображения и очищает текст, возвращая список кортежей (текст, image_id).
+    """
     if not text:
         return []
         
-    image_patterns = [
-        # Формат [AI отправляет фото: ![название](ссылка)]
-        r'\[AI отправляет фото:.*?https://drive\.google\.com/file/d/(.*?)/view\?usp=sharing\]',
-        # Формат [AI отправляет фото: ссылка]
-        r'\[AI отправляет фото:.*?https://drive\.google\.com/file/d/(.*?)/view\?usp=drive_link\]',
-        # Просто ссылка
-        r'https://drive\.google\.com/file/d/(.*?)/view\?usp=drive_link',
-        # Другие форматы ссылок
-        r'https://drive\.google\.com/file/d/(.*?)/view\?usp=sharing'
-    ]
+    result = []
+    remaining_text = text
     
-    service_patterns = [
-        r'\*\*СЦЕНА \d+:.*?\*\*\n*',
-        r'\*\*Описание:\*\*\n*',
-        r'Инициализация:.*?\n',
-        r'---\n*',
-        r'Цель достигнута:.*?\n',
-        r'### СЦЕНА.*?\n',
-        r'### Переход к.*?сцен[еу].*?\n',
-        r'### ФИНАЛЬНАЯ СЦЕНА:.*?\n',
-        r'^\d+\.\s+(?=[А-Я])',
-        r'Шаг \d+\..*?\n',
-        r'Теперь мы готовы начать!.*?\n',
-        r'\[AI отправляет фото:[ \t\r\n]*',
-        r'^\[Описание:[ \t]*',  # Добавляем паттерн для начала описания
-        r'\][ \t]*$',  # Добавляем паттерн для конца описания
-        r'"Развитие сцены":[ \t\r\n]*',
-        r'**Развитие сцены**:[ \t\r\n]*',
-        r'Развитие сцены:[ \t\r\n]*',
-    ]
-    
-    messages = []
-    current_text = []
-    lines = text.split('\n')
-    
-    for line in lines:
-        # Проверяем, содержит ли строка изображение
+    while remaining_text:
+        # Ищем первое изображение
+        image_match = None
+        image_start = len(remaining_text)
+        image_end = image_start
         image_id = None
-        for pattern in image_patterns:
-            match = re.search(pattern, line)
-            if match:
-                image_id = match.group(1)
-                break
         
-        if image_id:
-            # Если есть накопленный текст, добавляем его
-            if current_text:
-                clean_text = clean_text_content('\n'.join(current_text), service_patterns)
+        # Проверяем все паттерны изображений
+        for pattern in image_patterns:
+            match = re.search(pattern, remaining_text)
+            if match and (match.start() < image_start):
+                image_match = match
+                image_start = match.start()
+                image_end = match.end()
+                image_id = match.group(1)
+        
+        if image_match:
+            # Обрабатываем текст до изображения
+            text_before = remaining_text[:image_start]
+            if text_before:
+                clean_text = clean_text_content(text_before, service_patterns)
                 if clean_text:
-                    messages.append((clean_text, None))
-                current_text = []
+                    result.append((clean_text, None))
+            
             # Добавляем изображение
-            messages.append((None, image_id))
+            result.append((None, image_id))
+            
+            # Обновляем оставшийся текст
+            remaining_text = remaining_text[image_end:].strip()
         else:
-            current_text.append(line)
+            # Если изображений больше нет, обрабатываем весь оставшийся текст
+            clean_text = clean_text_content(remaining_text, service_patterns)
+            if clean_text:
+                result.append((clean_text, None))
+            remaining_text = ""
     
-    # Добавляем оставшийся текст
-    if current_text:
-        clean_text = clean_text_content('\n'.join(current_text), service_patterns)
-        if clean_text:
-            messages.append((clean_text, None))
-        elif current_text:  # Если текст не содержит служебных пометок, добавляем его как есть
-            messages.append(('\n'.join(current_text), None))
-    
-    return messages if messages else [(text, None)]  # Возвращаем оригинальный текст, если нет обработанных сообщений
+    return result if result else [(text, None)]
 
 def clean_text_content(text: str, service_patterns: List[str]) -> Optional[str]:
     """Очищает текст от служебных паттернов."""
     try:
         cleaned = text
         
-        # Проверяем, есть ли текст в квадратных скобках
-        if cleaned.strip().startswith('[') and cleaned.strip().endswith(']'):
-            # Только тогда пытаемся очистить описание в скобках
-            cleaned = re.sub(r'^\[(?:Описание:)?[ \t]*(.*?)\][ \t]*$', r'\1', cleaned, flags=re.DOTALL)
-        
-        # Очищаем от остальных служебных паттернов
+        # Очищаем от служебных паттернов
         for pattern in service_patterns:
-            cleaned = re.sub(pattern, '', cleaned, flags=re.MULTILINE)
+            # Добавляем флаги re.DOTALL для обработки переносов строк
+            cleaned = re.sub(pattern, '', cleaned, flags=re.MULTILINE | re.DOTALL)
         
-        # Очищаем от markdown и лишних пробелов
-        cleaned = re.sub(r'\*\*', '', cleaned)
-        cleaned = re.sub(r'\n\s*\n', '\n\n', cleaned)
-        cleaned = re.sub(r'[ \t]+', ' ', cleaned)
         cleaned = cleaned.strip()
-        
         return cleaned if cleaned else None
-    except Exception as e:
+    except Exception:
         return text
