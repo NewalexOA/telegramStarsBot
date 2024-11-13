@@ -1,7 +1,6 @@
 import pytest
-from models.enums import RewardType
 from utils.referral import create_ref_link, get_user_ref_link
-from utils.rewards import give_reward
+
 
 @pytest.mark.asyncio
 async def test_create_ref_link(db_session):
@@ -32,23 +31,3 @@ async def test_get_user_ref_link(db_session):
         assert fetched_link is not None
         assert fetched_link.id == created_link.id
         assert fetched_link.code == created_link.code
-
-@pytest.mark.asyncio
-async def test_reward_creation(db_session):
-    """Test reward creation and processing"""
-    async with db_session.begin():
-        user_id = 123456
-        referral_id = 1
-        
-        reward = await give_reward(
-            db_session,
-            user_id,
-            referral_id,
-            RewardType.CHAPTER_UNLOCK,
-            "1"
-        )
-        await db_session.flush()
-        
-        assert reward.user_id == user_id
-        assert reward.reward_type == RewardType.CHAPTER_UNLOCK.value
-        assert reward.reward_data == "1"

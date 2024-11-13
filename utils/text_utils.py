@@ -1,6 +1,25 @@
 import re
 from typing import List, Tuple, Optional
 
+
+def clean_assistant_message(text: str) -> str:
+    """
+    Очищает сообщение ассистента от ссылок и служебных пометок,
+    возвращая только чистый текст для сохранения в базе
+    """
+    messages = extract_images_and_clean_text(text)
+    clean_text_parts = []
+    
+    for msg in messages:
+        if isinstance(msg, tuple):
+            text_part, _ = msg
+            if text_part:
+                clean_text_parts.append(text_part)
+        elif isinstance(msg, str):
+            clean_text_parts.append(msg)
+            
+    return "\n".join(clean_text_parts)
+
 def extract_images_and_clean_text(text: str) -> List[Tuple[Optional[str], Optional[str]]]:
     """Извлекает изображения и очищает текст, возвращая список кортежей (текст, image_id)."""
     image_patterns = [

@@ -9,6 +9,7 @@ import time
 from models.novel import NovelState, NovelMessage
 from utils.openai_helper import openai_client, send_assistant_response, handle_tool_calls
 from keyboards.menu import get_main_menu
+from utils.text_utils import clean_assistant_message
 
 logger = structlog.get_logger()
 
@@ -197,7 +198,7 @@ class NovelService:
                 except Exception as e:
                     if "No thread found" in str(e):
                         logger.info("Thread was deleted, stopping message processing")
-                        return  # Добавляем return для полного завершения
+                        return
                     raise e
 
                 # Ожидаем завершения
@@ -207,7 +208,7 @@ class NovelService:
                 while True:
                     if not novel_state.thread_id:
                         logger.info("Thread was deleted during run, stopping processing")
-                        return  # Добавляем return для полного завершения
+                        return
                     
                     try:
                         run = await openai_client.beta.threads.runs.retrieve(
@@ -217,7 +218,7 @@ class NovelService:
                     except Exception as e:
                         if "No thread found" in str(e):
                             logger.info("Thread was deleted, stopping run retrieval")
-                            return  # Добавляем return для полного завершения
+                            return
                         raise e
 
                     if run.status == "completed":
@@ -275,11 +276,12 @@ class NovelService:
             
             logger.info(f"Raw assistant response:\n{assistant_message}")
             
-            # Сохраняем оригинальный ответ ассистента
-            await self.save_message(novel_state, assistant_message)
+            # Сохраняем очищенный ответ ассистента
+            clean_message = clean_assistant_message(assistant_message)
+            await self.save_message(novel_state, clean_message)
             logger.info("Assistant message saved to database")
             
-            # Отправляем ответ пользователю (очистка текста происходит внутри)
+            # Отправляем оригинальный ответ пользователю (очистка текста происходит внутри)
             await send_assistant_response(message, assistant_message)
             logger.info("Response sent to user")
 

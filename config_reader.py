@@ -5,7 +5,7 @@ from pydantic import BaseModel, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import structlog
 import tomli
-from dotenv import load_dotenv, set_key
+
 
 logger = structlog.get_logger()
 
@@ -23,6 +23,7 @@ class BotConfig(BaseSettings):
     provider_token: str = ""
     openai_api_key: SecretStr
     assistant_id: str
+    restart_cost: int = 100
 
     @field_validator("owners", mode="before")
     @classmethod

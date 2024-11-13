@@ -6,6 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.exceptions import TelegramBadRequest
 
+from config_reader import bot_config
 from services.novel import NovelService
 from filters.chat_type import ChatTypeFilter
 from filters.is_subscribed import IsSubscribedFilter
@@ -15,11 +16,10 @@ from middlewares.check_subscription import check_subscription
 from keyboards.subscription import get_subscription_keyboard
 from keyboards.menu import get_main_menu
 from filters.referral import RegularStartCommandFilter
-from utils.referral import create_ref_link
-from config_reader import get_config, BotConfig
+from utils.referral import create_ref_link, get_available_discount
+
 
 logger = structlog.get_logger()
-bot_config = get_config(BotConfig, "bot")
 
 router = Router(name="novel")
 router.message.filter(ChatTypeFilter(["private"]))
@@ -33,7 +33,7 @@ PRIORITIES = {
     "TEXT": 1
 }
 
-RESTART_COST = 100
+RESTART_COST = bot_config.restart_cost
 
 MENU_COMMANDS = {
     "🎮 Новелла",
@@ -65,46 +65,30 @@ async def check_subscription_required(message: Message, l10n) -> bool:
 
 async def start_novel_common(message: Message, session: AsyncSession, l10n):
     """Общая логика запуска новеллы"""
-    user_id = message.from_user.id
-    logger.info(f"Starting novel common for user {user_id}")
-    
-    novel_service = NovelService(session)
-    
+    logger.info(
+        "Starting novel common for user",
+        user_id=message.from_user.id
+    )
     try:
-        # Создаём новое состояние новеллы
-        novel_state = await novel_service.create_novel_state(user_id)
-        logger.info(f"Created novel state {novel_state.id if novel_state else None} for user {user_id}")
+        novel_service = NovelService(session)
+        # Получаем или создаем состояние новеллы
+        novel_state = await novel_service.get_novel_state(message.from_user.id)
+        if not novel_state:
+            novel_state = await novel_service.create_novel_state(message.from_user.id)
         
-        # Если вернулся None - значит требуется оплата
-        if novel_state is None:
-            logger.info(f"Payment required for user {user_id}")
-            await message.answer(
-                "Для повторного прохождения новеллы требуется оплата.",
-                reply_markup=get_main_menu(has_active_novel=False)
-            )
-            return
-        
-        # Отправляем основное меню и сообщение о загрузке
-        await message.answer(
-            "Новелла начинается! Используйте меню для управления:",
-            reply_markup=get_main_menu(has_active_novel=True)
-        )
-        loading_message = await message.answer("⌛️ Загрузка истории...")
-        
-        logger.info(f"Processing initial message for user {user_id}")
-        # Начинаем новеллу
+        # Запускаем новеллу через process_message
         await novel_service.process_message(
             message=message,
             novel_state=novel_state,
-            initial_message=True  # Флаг для первого сообщения
+            initial_message=True  # Важно! Это первое сообщение
         )
         
-        # Удаляем сообщение о загрузке
-        await loading_message.delete()
-        
     except Exception as e:
-        logger.error(f"Error starting novel: {e}", exc_info=True)
-        await message.answer(l10n.format_value("novel-error"))
+        logger.error(f"Error in start_novel_common: {e}", exc_info=True)
+        await message.answer(
+            l10n.format_value("novel-error"),
+            parse_mode="HTML"
+        )
 
 # Команды
 @router.message(
@@ -141,6 +125,14 @@ async def handle_menu_command(message: Message, session: AsyncSession, l10n):
             if not (is_admin or is_owner):
                 if not await check_subscription_required(message, l10n):
                     return
+                    
+                # Проверяем необходимость оплаты
+                novel_service = NovelService(session)
+                novel_state = await novel_service.get_novel_state(user_id)
+                if novel_state and novel_state.needs_payment:
+                    await send_restart_invoice(message, session, l10n)
+                    return
+                    
             await start_novel_common(message, session, l10n)
             
         elif command == "🔄 Рестарт":
@@ -151,7 +143,7 @@ async def handle_menu_command(message: Message, session: AsyncSession, l10n):
                 if not await check_subscription_required(message, l10n):
                     return
                 if novel_state and novel_state.needs_payment:
-                    await send_restart_invoice(message, l10n)
+                    await send_restart_invoice(message, session, l10n)
                     return
             
             await start_novel_common(message, session, l10n)
@@ -225,27 +217,72 @@ async def cmd_donate(message: Message, command: CommandObject, l10n):
 async def handle_menu_buttons(message: Message, session: AsyncSession, l10n):
     """Обработчик кнопок меню новеллы"""
     try:
+        command = message.text
         user_id = message.from_user.id
         is_admin, is_owner = await check_user_permissions(message)
         
-        if message.text == "🔄 Рестарт":
+        if command == "🎮 Новелла":
             if not (is_admin or is_owner):
-                await message.answer("У вас нет прав для рестарта новеллы")
+                if not await check_subscription_required(message, l10n):
+                    return
+                    
+                # Проверяем необходимость оплаты
+                novel_service = NovelService(session)
+                novel_state = await novel_service.get_novel_state(user_id)
+                if novel_state and novel_state.needs_payment:
+                    await send_restart_invoice(message, session, l10n)
+                    return
+                    
+            await start_novel_common(message, session, l10n)
+            
+        elif command == "🔄 Рестарт":
+            novel_service = NovelService(session)
+            novel_state = await novel_service.get_novel_state(user_id)
+            
+            if not (is_admin or is_owner):
+                if not await check_subscription_required(message, l10n):
+                    return
+                if novel_state and novel_state.needs_payment:
+                    await send_restart_invoice(message, session, l10n)
+                    return
+            
+            await start_novel_common(message, session, l10n)
+            
+        elif command == "💝 Донат":
+            await menu_donate(message, l10n)
+            
+        elif command == "❓ Помощь":
+            await menu_help(message, l10n)
+            
+        elif command == "🔗 Реферальная ссылка":
+            await menu_referral(message, session, l10n)
+            
+        elif command == "📖 Продолжить":
+            if not await check_subscription_required(message, l10n):
                 return
                 
             novel_service = NovelService(session)
             novel_state = await novel_service.get_novel_state(user_id)
             
-            if novel_state and novel_state.needs_payment:
-                await send_restart_invoice(message, l10n)
+            if not novel_state:
+                await message.answer(
+                    "У вас нет активной новеллы. Нажмите '🎮 Новелла' чтобы начать.",
+                    reply_markup=get_main_menu(has_active_novel=False)
+                )
                 return
-        
-        if not (is_admin or is_owner):
-            if not await check_subscription_required(message, l10n):
-                return
-        
-        await start_novel_common(message, session, l10n)
-        
+                
+            last_message = await novel_service.get_last_assistant_message(novel_state)
+            if last_message:
+                await message.answer(
+                    last_message,
+                    reply_markup=get_main_menu(has_active_novel=True)
+                )
+            else:
+                await message.answer(
+                    "Не удалось найти последнее сообщение. Попробуйте написать что-нибудь, чтобы продолжить.",
+                    reply_markup=get_main_menu(has_active_novel=True)
+                )
+            
     except Exception as e:
         logger.error(f"Error in handle_menu_buttons: {e}", exc_info=True)
         await message.answer("Произошла ошибка при обработке команды")
@@ -345,7 +382,10 @@ async def cancel_restart(callback: CallbackQuery):
 async def handle_successful_payment(message: Message, session: AsyncSession, l10n):
     """Обработчик успешного платежа"""
     try:
-        if message.successful_payment.invoice_payload == "novel_restart":
+        payload = message.successful_payment.invoice_payload
+        
+        if payload.startswith("restart_"):  # Изменяем проверку payload
+            # Обработка оплаты рестарта
             novel_service = NovelService(session)
             novel_state = await novel_service.get_novel_state(message.from_user.id)
             if novel_state:
@@ -354,9 +394,22 @@ async def handle_successful_payment(message: Message, session: AsyncSession, l10
             
             await start_novel_common(message, session, l10n)
             await message.answer(
-                "Спасибо за оплату! Новелла запущена.",
+                l10n.format_value("restart-payment-success"),
                 parse_mode="HTML"
             )
+        elif payload.endswith("_stars"):
+            # Обработка доната
+            await message.answer(
+                l10n.format_value(
+                    "donate-successful-payment",
+                    {"t_id": message.successful_payment.telegram_payment_charge_id}
+                ),
+                parse_mode="HTML"
+            )
+        else:
+            logger.error(f"Unknown payment payload: {payload}")
+            await message.answer("Произошла ошибка при обработке платежа")
+            
     except Exception as e:
         logger.error(f"Error processing payment: {e}", exc_info=True)
         await message.answer("Произошла ошибка при обработке платежа")
@@ -420,11 +473,17 @@ async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
     """Обработчик предварительной проверки платежа"""
     await pre_checkout_query.answer(ok=True)
 
-async def send_restart_invoice(message: Message, l10n):
+async def send_restart_invoice(message: Message, session: AsyncSession, l10n):
     """Отправляет инвойс для оплаты рестарта новеллы"""
+    # Получаем скидку пользователя
+    discount = await get_available_discount(message.from_user.id, session)
+    
+    # Рассчитываем финальную стоимость с учетом скидки
+    final_cost = max(1, round(bot_config.restart_cost * (100 - discount) / 100))
+    
     kb = InlineKeyboardBuilder()
     kb.button(
-        text=l10n.format_value("restart-button-pay", {"amount": RESTART_COST}),
+        text=l10n.format_value("restart-button-pay", {"amount": final_cost}),
         pay=True
     )
     kb.button(
@@ -436,9 +495,9 @@ async def send_restart_invoice(message: Message, l10n):
     await message.answer_invoice(
         title=l10n.format_value("restart-invoice-title"),
         description=l10n.format_value("restart-invoice-description"),
-        prices=[LabeledPrice(label="XTR", amount=RESTART_COST)],
-        provider_token="",  # Пустой для Stars
-        payload="novel_restart",
+        prices=[LabeledPrice(label="XTR", amount=final_cost)],
+        provider_token=bot_config.provider_token,
+        payload=f"restart_{message.from_user.id}",  # Используем тот же формат что и в personal_actions.py
         currency="XTR",
         reply_markup=kb.as_markup()
     )

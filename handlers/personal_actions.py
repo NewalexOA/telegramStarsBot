@@ -6,6 +6,7 @@ from aiogram.types import Message, LabeledPrice, PreCheckoutQuery, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config_reader import bot_config
 from fluent.runtime import FluentLocalization
 from filters.is_subscribed import IsSubscribedFilter
 from keyboards.subscription import get_subscription_keyboard
@@ -20,14 +21,12 @@ from filters.is_owner import IsOwnerFilter
 from utils.referral import get_user_ref_link, create_ref_link, get_available_discount  # Добавляем импорт
 from models.enums import RewardType
 
+
 logger = structlog.get_logger()
 
 # Declare router
 router = Router()
 router.message.filter(ChatTypeFilter(["private"]))
-
-# В начале файла добавим константу
-RESTART_COST = 100  # Стоимость рестарта новеллы в Stars
 
 @router.message(Command("start"), RegularStartCommandFilter())
 async def cmd_start(message: Message, session: AsyncSession, l10n):
@@ -65,36 +64,6 @@ async def cmd_start(message: Message, session: AsyncSession, l10n):
         reply_markup=reply_markup,
         parse_mode="HTML"
     )
-
-@router.message(F.text == "🎮 Новелла")
-async def menu_novel(message: Message, session: AsyncSession, l10n):
-    """Обработчик кнопки Новелла"""
-    # Проверяем, является ли пользователь админом или владельцем
-    is_admin = await IsAdminFilter(is_admin=True)(message) or await IsOwnerFilter(is_owner=True)(message)
-    
-    if is_admin:
-        await start_novel_common(message, session, l10n)
-        return
-        
-    # Для обычных пользователей проверяем подписку
-    if not await IsSubscribedFilter()(message):
-        await message.answer(
-            l10n.format_value("subscription-required"),
-            reply_markup=await get_subscription_keyboard(message),
-            parse_mode="HTML"
-        )
-        return
-    
-    novel_service = NovelService(session)
-    novel_state = await novel_service.get_novel_state(message.from_user.id)
-    
-    # Проверяем, завершил ли пользователь новеллу ранее
-    if novel_state and novel_state.is_completed:
-        # Отправляем счет на оплату рестарта
-        await send_restart_invoice(message, session, l10n)
-        return
-    
-    await start_novel_common(message, session, l10n)
 
 @router.message(F.text == "💝 Донат")
 async def menu_donate(message: Message, l10n):
@@ -331,42 +300,31 @@ async def menu_continue(message: Message, session: AsyncSession, l10n):
         logger.error(f"Error in menu_continue: {e}")
         await message.answer("Произошла ошибка. Пожалуйста, попробуйте ещё раз.")
 
-async def send_restart_invoice(message: Message, session: AsyncSession, l10n: FluentLocalization):
-    """Отправляет счет на оплату рестарта новеллы с учетом скидки"""
-    # Получаем доступную скидку
+async def send_restart_invoice(message: Message, session: AsyncSession, l10n):
+    """Отправляет инвойс для оплаты рестарта новеллы"""
+    # Получаем скидку пользователя
     discount = await get_available_discount(message.from_user.id, session)
     
-    # Рассчитываем финальную цену
-    final_cost = RESTART_COST * (100 - discount) // 100
+    # Рассчитываем финальную стоимость с учетом скидки
+    final_cost = max(1, round(bot_config.restart_cost * (100 - discount) / 100))
     
     kb = InlineKeyboardBuilder()
-    
-    # Добавляем информацию о скидке в текст кнопки
-    button_text = l10n.format_value("restart-button-pay", {"amount": final_cost})
-    if discount > 0:
-        button_text += f" (-{discount}%)"
-    
-    kb.button(text=button_text, pay=True)
+    kb.button(
+        text=l10n.format_value("restart-button-pay", {"amount": final_cost}),
+        pay=True
+    )
     kb.button(
         text=l10n.format_value("restart-button-cancel"),
         callback_data="restart_cancel"
     )
     kb.adjust(1)
 
-    # Формируем описание с учетом скидки
-    description = l10n.format_value("restart-invoice-description")
-    if discount > 0:
-        description += f"\nВаша скидка: {discount}%\n\n"
-        description += f"Итоговая цена: {final_cost} ⭐️"
-
-    prices = [LabeledPrice(label="XTR", amount=final_cost)]
-    
     await message.answer_invoice(
         title=l10n.format_value("restart-invoice-title"),
-        description=description,
-        prices=prices,
-        provider_token="",  # Пустой для Stars
-        payload=f"restart_{final_cost}_stars",
+        description=l10n.format_value("restart-invoice-description"),
+        prices=[LabeledPrice(label="XTR", amount=final_cost)],
+        provider_token=bot_config.provider_token,
+        payload="novel_restart",
         currency="XTR",
         reply_markup=kb.as_markup()
     )
