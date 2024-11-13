@@ -276,12 +276,13 @@ class NovelService:
             
             logger.info(f"Raw assistant response:\n{assistant_message}")
             
-            # Сохраняем очищенный ответ ассистента
+            # Сохраняем ответ ассистента (если текст пустой после очистки, сохраняем оригинал)
             clean_message = clean_assistant_message(assistant_message)
-            await self.save_message(novel_state, clean_message)
+            message_to_save = clean_message if clean_message else assistant_message
+            await self.save_message(novel_state, message_to_save)
             logger.info("Assistant message saved to database")
             
-            # Отправляем оригинальный ответ пользователю (очистка текста происходит внутри)
+            # Отправляем оригинальный ответ пользователю
             await send_assistant_response(message, assistant_message)
             logger.info("Response sent to user")
 

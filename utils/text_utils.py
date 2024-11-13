@@ -18,7 +18,8 @@ def clean_assistant_message(text: str) -> str:
         elif isinstance(msg, str):
             clean_text_parts.append(msg)
             
-    return "\n".join(clean_text_parts)
+    result = "\n".join(clean_text_parts)
+    return result if result else text
 
 def extract_images_and_clean_text(text: str) -> List[Tuple[Optional[str], Optional[str]]]:
     """Извлекает изображения и очищает текст, возвращая список кортежей (текст, image_id)."""
