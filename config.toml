@@ -2,6 +2,9 @@
 # Payment provider token (для Stars Payments)
 provider_token = ""  # Оставляем пустым, так как используем Stars
 
+# Стоимость рестарта новеллы в Stars
+restart_cost = 100
+
 [logs]
 # Show datetime in logs?
 show_datetime = true
