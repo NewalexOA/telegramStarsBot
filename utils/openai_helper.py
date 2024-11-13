@@ -128,25 +128,11 @@ async def send_assistant_response(message: Message, assistant_message: str) -> N
     messages = extract_images_and_clean_text(assistant_message)
     
     logger.info(f"Number of extracted messages: {len(messages)}")
-    logger.info(f"Raw messages: {messages}")  # Добавляем вывод сырых данных
-    
-    # Проверяем формат каждого сообщения
-    formatted_messages = []
-    for msg in messages:
-        logger.info(f"Processing message item: {msg}")
-        if isinstance(msg, tuple) and len(msg) == 2:
-            formatted_messages.append(msg)
-        elif isinstance(msg, str):
-            formatted_messages.append((msg, None))
-        else:
-            logger.error(f"Unexpected message format: {msg}")
-            continue
-    
-    logger.info(f"Formatted messages: {formatted_messages}")
+    logger.info(f"Raw messages: {messages}")
     
     # Отправляем сообщения
-    for i, (text, image_id) in enumerate(formatted_messages, 1):
-        logger.info(f"\nProcessing message {i}/{len(formatted_messages)}")
+    for i, (text, image_id) in enumerate(messages, 1):
+        logger.info(f"\nProcessing message {i}/{len(messages)}")
         logger.info(f"Text: {text[:200]}..." if text else "No text")
         logger.info(f"Image ID: {image_id}" if image_id else "No image")
         
