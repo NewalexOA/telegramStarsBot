@@ -137,12 +137,13 @@ class NovelService:
 
             if initial_message:
                 # Для первого сообщения отправляем специальный промпт
+                initial_prompt = "Начни с шага '0. Инициализация:' и спроси моё имя."
                 await openai_client.beta.threads.messages.create(
                     thread_id=novel_state.thread_id,
                     role="user",
-                    content="Начни с шага '0. Инициализация:' и спроси моё имя."
+                    content=initial_prompt
                 )
-                logger.info("Sent initial prompt")
+                logger.info(f"Sent initial prompt: {initial_prompt}")
             else:
                 # Сохраняем сообщение пользователя
                 await self.save_message(novel_state, text, is_user=True)
@@ -282,10 +283,10 @@ class NovelService:
             await self.save_message(novel_state, message_to_save)
             logger.info("Assistant message saved to database")
             
-            # Отправляем оригинальный ответ пользователю
+            # Отправляем ответ с клавиатурой активной новеллы
             await send_assistant_response(
                 message=message,
-                thread_id=novel_state.thread_id,
+                assistant_message=assistant_message,
                 reply_markup=get_main_menu(has_active_novel=True)
             )
             logger.info("Response sent to user")

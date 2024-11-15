@@ -27,13 +27,23 @@ def get_main_menu(has_active_novel: bool = False, is_admin: bool = False) -> Rep
             KeyboardButton(text="🗑 Очистить базу")
         )
     
-    # Настраиваем расположение кнопок
+    # Настраиваем расположение кнопок в зависимости от количества кнопок
+    buttons_list = list(builder.buttons)  # Преобразуем генератор в список
+    total_buttons = len(buttons_list)
+    
     if has_active_novel:
-        builder.adjust(2, 2, 1, 1)  # Две кнопки в первых двух рядах, по одной в остальных
+        if total_buttons <= 4:
+            builder.adjust(2, 2)
+        elif total_buttons <= 6:
+            builder.adjust(2, 2, 2)
+        else:
+            builder.adjust(2, 2, 2, 2)
     else:
-        builder.adjust(1, 2, 1)  # Одна кнопка в первом ряду, две во втором, одна в третьем
-        
-    if is_admin:
-        builder.adjust(*([2] * (len(builder.buttons) // 2 + len(builder.buttons) % 2)))
+        if total_buttons <= 3:
+            builder.adjust(1, 2)
+        elif total_buttons <= 5:
+            builder.adjust(1, 2, 2)
+        else:
+            builder.adjust(1, 2, 2, 2)
     
     return builder.as_markup(resize_keyboard=True) 
