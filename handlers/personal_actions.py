@@ -15,11 +15,10 @@ from filters.referral import RegularStartCommandFilter
 from middlewares.check_subscription import check_subscription
 from keyboards.menu import get_main_menu
 from services.novel import NovelService
-from handlers.novel import start_novel_common  # Добавляем в начало файла
+from handlers.novel import PRIORITIES, start_novel_common  # Добавляем в начало файла
 from filters.is_admin import IsAdminFilter
 from filters.is_owner import IsOwnerFilter
-from utils.referral import get_user_ref_link, create_ref_link, get_available_discount  # Добавляем импорт
-from models.enums import RewardType
+from utils.referral import get_user_ref_link, create_ref_link, get_available_discount  
 
 
 logger = structlog.get_logger()
@@ -28,7 +27,12 @@ logger = structlog.get_logger()
 router = Router()
 router.message.filter(ChatTypeFilter(["private"]))
 
-@router.message(Command("start"), RegularStartCommandFilter())
+@router.message(
+    Command("start"), 
+    ChatTypeFilter(["private"]), 
+    RegularStartCommandFilter(),
+    flags={"priority": PRIORITIES["COMMAND"]}
+)
 async def cmd_start(message: Message, session: AsyncSession, l10n):
     """
     Этот хэндлер будет вызван только для обычной команды /start без реферального кода

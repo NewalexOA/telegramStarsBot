@@ -4,10 +4,13 @@ from typing import List, Tuple, Optional
 # Паттерны для поиска изображений в тексте
 image_patterns = [
     # Формат [AI отправляет фото: ![название](ссылка)]
-    r'\[AI отправляет фото:[ \t\r\n]*!\[.*?\]\(https://drive\.google\.com/file/d/(.*?)/view\?(?:usp=sharing|usp=drive_link)\)\]',
+    r'\[AI отправляет фото:[ \t\r\n]*!\[.*?\]\(https://drive\.google\.com/file/d/(.*?)/view\?(?:usp=sharing|usp=drive_link)\)\]\.?',
     
     # Формат [AI отправляет фото: ссылка]
-    r'\[AI отправляет фото:[ \t\r\n]*https://drive\.google\.com/file/d/(.*?)/view\?(?:usp=sharing|usp=drive_link)\]',
+    r'\[AI отправляет фото:[ \t\r\n]*https://drive\.google\.com/file/d/(.*?)/view\?(?:usp=sharing|usp=drive_link)\]\.?',
+    
+    # Новый паттерн для формата ![имя](ссылка)
+    r'!\[.*?\]\(https://drive\.google\.com/file/d/(.*?)/view\?(?:usp=sharing|usp=drive_link)\)\.?',
 ]
 
 # Паттерны для очистки служебных сообщений
@@ -18,6 +21,7 @@ service_patterns = [
     r'---\n*',                        # Разделители
     r'Цель достигнута:.*?\n',         # Цель достигнута: ...
     r'### СЦЕНА.*?\n',                # ### СЦНА ...
+    r'СЦЕНА \d+:.*?\n',               # СЦЕНА 1: ...
     r'### Переход к.*?сцен[еу].*?\n', # ### Переход к сцене ...
     r'### ФИНАЛЬНАЯ СЦЕНА:.*?\n',     # ### ФИНАЛЬНАЯ СЦЕНА: ...
     r'^\d+\.\s+(?=[А-Я])',           # 1. Начало предложения
@@ -30,10 +34,6 @@ service_patterns = [
     r'\][ \t\r\n]*$',                 # Закрывающая скобка в конце
     r'!\[.*?\]\(',                    # Очистка markdown разметки изображений
     r'\)[ \t\r\n]*',                  # Закрывающая скобка изображения
-    
-    # Очистка тегов изображений полностью
-    r'\[AI отправляет фото:[ \t\r\n]*!\[.*?\]\(https://drive\.google\.com/file/d/.*?/view\?(?:usp=sharing|usp=drive_link)\)\]',
-    r'\[AI отправляет фото:[ \t\r\n]*https://drive\.google\.com/file/d/.*?/view\?(?:usp=sharing|usp=drive_link)\]',
 ]
 
 def clean_assistant_message(text: str) -> str:
