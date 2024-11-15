@@ -283,12 +283,19 @@ class NovelService:
             logger.info("Assistant message saved to database")
             
             # Отправляем оригинальный ответ пользователю
-            await send_assistant_response(message, assistant_message)
+            await send_assistant_response(
+                message=message,
+                thread_id=novel_state.thread_id,
+                reply_markup=get_main_menu(has_active_novel=True)
+            )
             logger.info("Response sent to user")
 
         except Exception as e:
             logger.error(f"Error processing message: {e}")
-            await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте позже.")
+            await message.answer(
+                "Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте позже.",
+                reply_markup=get_main_menu(has_active_novel=True)
+            )
 
     async def end_story(self, novel_state: NovelState, message: Message, silent: bool = False) -> None:
         """Завершает новеллу и очищает данные"""
