@@ -7,7 +7,6 @@ import structlog
 from handlers.novel import PRIORITIES  # Исправляем импорт
 
 from models.referral import Referral, ReferralLink, PendingReferral
-from keyboards.subscription import get_subscription_keyboard
 from filters.chat_type import ChatTypeFilter
 from filters.referral import ReferralCommandFilter
 
@@ -101,9 +100,6 @@ async def cmd_start_with_ref(message: Message, session: AsyncSession, l10n):
             ref_code=ref_code
         )
     finally:
-        # В любом случае показываем приветствие и кнопку подписки
-        await message.answer(
-            l10n.format_value("hello-msg"),
-            reply_markup=await get_subscription_keyboard(message),
-            parse_mode="HTML"
-        )
+        # Вместо самостоятельной отправки сообщения вызываем обработчик обычного /start
+        from handlers.personal_actions import cmd_start
+        await cmd_start(message, session, l10n)
