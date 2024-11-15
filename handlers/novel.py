@@ -92,24 +92,6 @@ async def start_novel_common(message: Message, session: AsyncSession, l10n):
 
 # Команды
 @router.message(
-    Command("start"),
-    ChatTypeFilter(["private"]),
-    RegularStartCommandFilter(),
-    flags={"priority": PRIORITIES["COMMAND"]}
-)
-async def cmd_start(message: Message, session: AsyncSession, l10n):
-    """Обработчик обычной команды /start"""
-    try:
-        await message.answer(
-            l10n.format_value("hello-msg"),
-            reply_markup=get_main_menu(has_active_novel=False),
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        logger.error(f"Error in cmd_start: {e}", exc_info=True)
-        await message.answer(l10n.format_value("novel-error"))
-
-@router.message(
     F.text.in_(MENU_COMMANDS),
     ChatTypeFilter(["private"]),
     flags={"priority": PRIORITIES["MENU"]}
