@@ -8,6 +8,9 @@ image_patterns = [
     
     # Формат [AI отправляет фото: ссылка]
     r'\[AI отправляет фото:[ \t\r\n]*https://drive\.google\.com/file/d/(.*?)/view\?(?:usp=sharing|usp=drive_link)\]',
+    
+    # Новый паттерн для формата ![имя](ссылка)
+    r'!\[.*?\]\(https://drive\.google\.com/file/d/(.*?)/view\?(?:usp=sharing|usp=drive_link)\)',
 ]
 
 # Паттерны для очистки служебных сообщений
@@ -34,6 +37,9 @@ service_patterns = [
     # Очистка тегов изображений полностью
     r'\[AI отправляет фото:[ \t\r\n]*!\[.*?\]\(https://drive\.google\.com/file/d/.*?/view\?(?:usp=sharing|usp=drive_link)\)\]',
     r'\[AI отправляет фото:[ \t\r\n]*https://drive\.google\.com/file/d/.*?/view\?(?:usp=sharing|usp=drive_link)\]',
+    
+    # Добавляем паттерн для очистки нового формата изображений
+    r'!\[.*?\]\(https://drive\.google\.com/file/d/.*?/view\?(?:usp=sharing|usp=drive_link)\)',
 ]
 
 def clean_assistant_message(text: str) -> str:
