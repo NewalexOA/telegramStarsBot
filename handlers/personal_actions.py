@@ -18,8 +18,7 @@ from services.novel import NovelService
 from handlers.novel import start_novel_common  # Добавляем в начало файла
 from filters.is_admin import IsAdminFilter
 from filters.is_owner import IsOwnerFilter
-from utils.referral import get_user_ref_link, create_ref_link, get_available_discount  # Добавляем импорт
-from models.enums import RewardType
+from utils.referral import get_user_ref_link, create_ref_link, get_available_discount  
 
 
 logger = structlog.get_logger()
