@@ -15,7 +15,6 @@ from filters.is_owner import IsOwnerFilter
 from middlewares.check_subscription import check_subscription
 from keyboards.subscription import get_subscription_keyboard
 from keyboards.menu import get_main_menu
-from filters.referral import RegularStartCommandFilter
 from utils.referral import create_ref_link, get_available_discount
 
 
