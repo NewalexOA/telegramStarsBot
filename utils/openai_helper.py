@@ -179,7 +179,7 @@ async def send_assistant_response(
                 # Отправляем изображение, если оно есть
                 if image_id:
                     try:
-                        image_data = await image_cache.get_or_download(image_id)
+                        image_data = await download_image(image_id)
                         if image_data:
                             await message.answer_photo(
                                 BufferedInputFile(

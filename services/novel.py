@@ -137,7 +137,7 @@ class NovelService:
 
             if initial_message:
                 # Для первого сообщения отправляем специальный промпт
-                initial_prompt = "Начни с шага '0. Инициализация:' и спроси моё имя."
+                initial_prompt = "Начни с краткого введения и спроси моё имя."
                 await openai_client.beta.threads.messages.create(
                     thread_id=novel_state.thread_id,
                     role="user",
@@ -156,6 +156,12 @@ class NovelService:
                 
                 if len(messages.data) == 2:  # Первый вопрос и первый ответ (имя)
                     logger.info("Processing name response")
+                    await message.answer(
+                        "Создаю персонажей...",
+                        reply_markup=get_main_menu(has_active_novel=True),
+                        parse_mode="HTML"
+                    )
+
                     character_prompt = f"""Теперь представь персонажей, строго следуя формату из сценария, и только после этого начни первую сцену. 
                     
                     ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{text}". История должна быть полностью персонализирована под это имя.
@@ -241,9 +247,9 @@ class NovelService:
                             await self.save_message(novel_state, assistant_message)
                             await send_assistant_response(message, assistant_message)
                         
-                        # Теперь обрабатываем tool calls
+                        # Обрабатываем tool calls
                         await handle_tool_calls(run, novel_state.thread_id, self, novel_state, message)
-                        continue
+                        return  # Завершаем обработку, так как история закончена
                     elif run.status == "failed":
                         if attempt < max_attempts:
                             logger.warning(f"Assistant run failed on attempt {attempt}, retrying...")
