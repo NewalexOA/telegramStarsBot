@@ -365,7 +365,7 @@ async def menu_ref_link(message: Message, session: AsyncSession, l10n):
         discount = await get_available_discount(message.from_user.id, session)
         
         # Формируем текст о текущих наградах
-        rewards_text = "\nВаш�� награды:"
+        rewards_text = "\nВаши награды:"
         if discount >= 0 and discount < 50:
             rewards_text += f"\n- Скидка {discount}% на перезапуск истории\n"
             rewards_text += "\nПригласите больше друзей и получите скидку до 50% на перезапуск истории!"
