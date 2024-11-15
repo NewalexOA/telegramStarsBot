@@ -1,6 +1,6 @@
 import aiohttp
 import structlog
-from aiogram.types import Message, BufferedInputFile
+from aiogram.types import Message, BufferedInputFile, ReplyKeyboardMarkup
 from openai import AsyncOpenAI, PermissionDeniedError
 from config_reader import bot_config
 from utils.image_cache import ImageCache
@@ -153,44 +153,61 @@ async def download_image(url: str) -> bytes:
             logger.error(f"Error downloading image {image_id}: {e}")
             raise
 
-async def send_assistant_response(message: Message, assistant_message: str) -> None:
-    """Отправка ответа ассистента пользователю."""
-    logger.info("Starting extract_images_and_clean_text")
-    logger.info(f"Original message:\n{assistant_message}")
-    
-    # Получаем список кортежей (текст, image_id)
-    messages = extract_images_and_clean_text(assistant_message)
-    
-    logger.info(f"Number of extracted messages: {len(messages)}")
-    logger.info(f"Raw messages: {messages}")
-    
-    # Отправляем сообщения
-    for i, (text, image_id) in enumerate(messages, 1):
-        logger.info(f"\nProcessing message {i}/{len(messages)}")
-        logger.info(f"Text: {text[:200]}..." if text else "No text")
-        logger.info(f"Image ID: {image_id}" if image_id else "No image")
+async def send_assistant_response(
+    message: Message,
+    assistant_message: str,
+    reply_markup: ReplyKeyboardMarkup = None
+) -> None:
+    """
+    Отправляет ответ ассистента пользователю с обработкой изображений
+    """
+    try:
+        # Извлекаем изображения и очищаем текст
+        messages = extract_images_and_clean_text(assistant_message)
         
-        if image_id:
-            try:
-                image_url = f"https://drive.google.com/uc?export=view&id={image_id}"
-                logger.info(f"Processing image: {image_id}")
-                image_data = await download_image(image_url)
-
-                await message.answer_photo(
-                    BufferedInputFile(image_data, filename="image.webp"),
-                    caption=text if text else None
-                )
-                logger.info("Image sent successfully")
-            except Exception as e:
-                logger.error(f"Error sending image: {e}")
-                await message.answer("Не удалось загрузить изображение")
-                if text:
-                    logger.info("Sending text after image error")
-                    await message.answer(text)
-        else:
-            if text:
-                logger.info("Sending text-only message")
-                await message.answer(text)
+        for msg in messages:
+            if isinstance(msg, tuple):
+                text, image_id = msg
+                
+                # Отправляем текст, если он есть
+                if text and text.strip():
+                    await message.answer(
+                        text.strip(),
+                        reply_markup=reply_markup
+                    )
+                
+                # Отправляем изображение, если оно есть
+                if image_id:
+                    try:
+                        image_data = await image_cache.get_or_download(image_id)
+                        if image_data:
+                            await message.answer_photo(
+                                BufferedInputFile(
+                                    image_data,
+                                    filename=f"{image_id}.jpg"
+                                ),
+                                reply_markup=reply_markup
+                            )
+                    except Exception as e:
+                        logger.error(f"Error sending image {image_id}: {e}")
+                        await message.answer(
+                            f"[Не удалось загрузить изображение: {image_id}]",
+                            reply_markup=reply_markup
+                        )
+            else:
+                # Если это просто строка, отправляем её
+                if msg.strip():
+                    await message.answer(
+                        msg.strip(),
+                        reply_markup=reply_markup
+                    )
+                    
+    except Exception as e:
+        logger.error(f"Error sending assistant response: {e}")
+        await message.answer(
+            "Произошла ошибка при отправке ответа. Пожалуйста, попробуйте позже.",
+            reply_markup=reply_markup
+        )
 
 class ToolOutput(TypedDict):
     tool_call_id: str
