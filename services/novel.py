@@ -137,12 +137,13 @@ class NovelService:
 
             if initial_message:
                 # Для первого сообщения отправляем специальный промпт
+                initial_prompt = "Начни с краткого введения и спроси моё имя."
                 await openai_client.beta.threads.messages.create(
                     thread_id=novel_state.thread_id,
                     role="user",
-                    content="Начни с шага '0. Инициализация:' и спроси моё имя."
+                    content=initial_prompt
                 )
-                logger.info("Sent initial prompt")
+                logger.info(f"Sent initial prompt: {initial_prompt}")
             else:
                 # Сохраняем сообщение пользователя
                 await self.save_message(novel_state, text, is_user=True)
@@ -155,6 +156,12 @@ class NovelService:
                 
                 if len(messages.data) == 2:  # Первый вопрос и первый ответ (имя)
                     logger.info("Processing name response")
+                    await message.answer(
+                        "Создаю персонажей...",
+                        reply_markup=get_main_menu(has_active_novel=True),
+                        parse_mode="HTML"
+                    )
+
                     character_prompt = f"""Теперь представь персонажей, строго следуя формату из сценария, и только после этого начни первую сцену. 
                     
                     ВАЖНО: Замени все упоминания "Игрок", "Саша" и подобные на имя игрока "{text}". История должна быть полностью персонализирована под это имя.
@@ -240,9 +247,9 @@ class NovelService:
                             await self.save_message(novel_state, assistant_message)
                             await send_assistant_response(message, assistant_message)
                         
-                        # Теперь обрабатываем tool calls
+                        # Обрабатываем tool calls
                         await handle_tool_calls(run, novel_state.thread_id, self, novel_state, message)
-                        continue
+                        return  # Завершаем обработку, так как история закончена
                     elif run.status == "failed":
                         if attempt < max_attempts:
                             logger.warning(f"Assistant run failed on attempt {attempt}, retrying...")
@@ -282,13 +289,20 @@ class NovelService:
             await self.save_message(novel_state, message_to_save)
             logger.info("Assistant message saved to database")
             
-            # Отправляем оригинальный ответ пользователю
-            await send_assistant_response(message, assistant_message)
+            # Отправляем ответ с клавиатурой активной новеллы
+            await send_assistant_response(
+                message=message,
+                assistant_message=assistant_message,
+                reply_markup=get_main_menu(has_active_novel=True)
+            )
             logger.info("Response sent to user")
 
         except Exception as e:
             logger.error(f"Error processing message: {e}")
-            await message.answer("Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте позже.")
+            await message.answer(
+                "Произошла ошибка при обработке сообщения. Пожалуйста, попробуйте позже.",
+                reply_markup=get_main_menu(has_active_novel=True)
+            )
 
     async def end_story(self, novel_state: NovelState, message: Message, silent: bool = False) -> None:
         """Завершает новеллу и очищает данные"""
