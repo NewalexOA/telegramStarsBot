@@ -26,9 +26,7 @@ def init_logging():
     # Настраиваем structlog
     structlog.configure(**get_structlog_config(log_config))
 
-def get_structlog_config(
-    log_config: LogConfig
-) -> dict:
+def get_structlog_config(log_config: LogConfig) -> dict:
     """
     Get config for structlog
     :param log_config: объект LogConfig with log parameters
