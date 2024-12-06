@@ -190,3 +190,4 @@ fabric.properties
 bot.db
 /image_cache
 .env.bac
+scenario.txt
