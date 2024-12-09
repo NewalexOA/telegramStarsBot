@@ -31,11 +31,15 @@ async def main():
     assistant_id = bot_config.assistant_id
     logger.info(f"Assistant ID: {assistant_id}")
     
-    # Создаём ассистента при первом запуске
-    if not assistant_id:
-        assistant_id = await create_assistant()
-        logger.info(f"Created new assistant with ID: {assistant_id}")
-        update_assistant_id(assistant_id)
+    # Создаём или проверяем ассистента
+    try:
+        new_assistant_id = await create_assistant(existing_assistant_id=assistant_id)
+        if new_assistant_id != assistant_id:
+            logger.info(f"Updating assistant ID: {new_assistant_id}")
+            update_assistant_id(new_assistant_id)
+    except Exception as e:
+        logger.error(f"Critical error with assistant creation/retrieval: {e}")
+        raise
     
     # Run bot
     await logger.ainfo("Starting the bot...")

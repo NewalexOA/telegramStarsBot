@@ -22,12 +22,33 @@ openai_client = AsyncOpenAI(
 # Инициализация кэша
 image_cache = ImageCache()
 
-async def create_assistant():
-    """Создает или получает существующего ассистента"""
+async def create_assistant(existing_assistant_id: str = None) -> str:
+    """
+    Создает нового ассистента или проверяет существующего
+    
+    Args:
+        existing_assistant_id: ID существующего ассистента для проверки
+        
+    Returns:
+        str: ID действующего ассистента (существующего или нового)
+    """
     try:
+        # Проверяем существующего ассистента если ID предоставлен
+        if existing_assistant_id:
+            try:
+                await openai_client.beta.assistants.retrieve(existing_assistant_id)
+                logger.debug(f"Successfully retrieved existing assistant: {existing_assistant_id}")
+                return existing_assistant_id
+            except Exception as e:
+                logger.error(f"Error retrieving assistant {existing_assistant_id}: {e}")
+                # Продолжаем выполнение для создания нового ассистента
+        
+        # Создаем нового ассистента
         with open('scenario.txt', 'r', encoding='utf-8') as file:
             scenario = file.read()
-        
+            
+        logger.info("Creating new OpenAI assistant")
+
         # Определяем функцию для ассистента
         tools = [
             {
@@ -47,7 +68,7 @@ async def create_assistant():
                         "required": ["reason"]
                     }
                 }
-            },
+            }
         ]
         
         instructions = """
@@ -71,6 +92,7 @@ async def create_assistant():
             tools=tools
         )
         
+        logger.debug(f"Created new assistant with ID: {assistant.id}")
         return assistant.id
         
     except PermissionDeniedError as e:
@@ -93,8 +115,8 @@ async def create_assistant():
             region_info=True
         )
         
-        # Возвращаем фиксированный ID для тестирования
-        return "asst_test_123456789"  # Временное решение
+        # Пробрасываем ошибку дальше
+        raise
         
     except Exception as e:
         logger.error(
